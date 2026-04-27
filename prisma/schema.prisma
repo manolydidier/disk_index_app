@@ -58,6 +58,9 @@ model Disk {
   scanJobs    ScanJob[]
   activities  DiskActivity[]
 
+automationPreference DiskAutomationPreference?
+automationEvents     AutomationEvent[]
+
   @@index([status])
   @@index([isEnabled])
 }
@@ -136,4 +139,69 @@ model DiskActivity {
   @@index([diskId, acknowledgedAt])
   @@index([createdAt])
   @@index([activityType])
+}
+enum AutomationEventType {
+  NEW_DISK_DETECTED
+  DISK_CHANGED
+}
+
+enum AutomationActionState {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  MUTED
+  AUTO_STARTED
+}
+
+model AutomationSettings {
+  id                        Int      @id
+  isEnabled                 Boolean  @default(true)
+  detectNewDisks            Boolean  @default(true)
+  watchIndexedDisks         Boolean  @default(true)
+  confirmBeforeUpdate       Boolean  @default(true)
+  autoUpdateWithoutPrompt   Boolean  @default(false)
+  showSystemNotifications   Boolean  @default(true)
+  ignoredRoots              Json?
+  ignoredPathPatterns       Json?
+  notificationCooldownSeconds Int    @default(30)
+  changeDebounceSeconds     Int      @default(8)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model DiskAutomationPreference {
+  id                      String   @id @default(cuid())
+  diskId                  String   @unique
+  monitorEnabled          Boolean  @default(true)
+  notifyOnConnect         Boolean  @default(true)
+  notifyOnChange          Boolean  @default(true)
+  autoUpdateWithoutPrompt Boolean  @default(false)
+  muted                   Boolean  @default(false)
+  ignoredPaths            Json?
+  lastPromptAt            DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  disk Disk @relation(fields: [diskId], references: [id], onDelete: Cascade)
+}
+
+model AutomationEvent {
+  id             String                @id @default(cuid())
+  diskId         String?
+  eventType      AutomationEventType
+  title          String
+  message        String
+  payload        Json?
+  isRead         Boolean               @default(false)
+  isDismissed    Boolean               @default(false)
+  requiresAction Boolean               @default(true)
+  actionState    AutomationActionState @default(PENDING)
+  dedupeKey      String?
+  createdAt      DateTime              @default(now())
+  actedAt        DateTime?
+
+  disk Disk? @relation(fields: [diskId], references: [id], onDelete: SetNull)
+
+  @@index([diskId, createdAt])
+  @@index([isDismissed, createdAt])
 }

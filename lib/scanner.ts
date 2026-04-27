@@ -1,5 +1,4 @@
-import { access, lstat, opendir } from 'fs/promises';
-import path from 'path';
+import 'server-only';
 import {
   ActivityType,
   DiskStatus,
@@ -11,6 +10,10 @@ import {
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { buildDiskTreeResponse } from '@/lib/tree';
+import { getFsPromises, getPath } from '@/lib/server/node-runtime';
+
+const { access, lstat, opendir } = getFsPromises();
+const path = getPath();
 
 type DiskRecord = {
   id: string;
@@ -122,7 +125,6 @@ export async function startDiskScan(
   return job;
 }
 
-// Compatibilité si d'autres fichiers importent encore runDiskScan
 export async function runDiskScan(
   diskId: string,
   scanType: ScanType = ScanType.DIFFERENTIAL
@@ -429,11 +431,6 @@ async function scanFilesystem(
 
         const nextDepth = depth + 1;
 
-        // Niveau strict :
-        // depth 0 = racine du disque
-        // nextDepth 1 = enfants directs
-        // nextDepth 2 = contenu direct des enfants
-        // etc.
         if (nextDepth > scanOptions.maxDepth) {
           continue;
         }

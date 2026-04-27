@@ -3,8 +3,10 @@ import { DiskStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateNextDiskCode } from '@/lib/disk-code';
 import { diskCreateSchema } from '@/lib/validators';
+import { normalizeDiskRootPath } from '@/lib/root-path';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 function jsonSafe<T>(value: T): T {
   return JSON.parse(
@@ -50,12 +52,13 @@ export async function POST(request: Request) {
     }
 
     const code = parsed.data.code ?? (await generateNextDiskCode());
+    const rootPath = normalizeDiskRootPath(parsed.data.rootPath);
 
     const disk = await prisma.disk.create({
       data: {
         code,
         name: parsed.data.name,
-        rootPath: parsed.data.rootPath,
+        rootPath,
         description: parsed.data.description,
         status: parsed.data.status ?? DiskStatus.ACTIVE
       }

@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DiskStatus {
+  ACTIVE
+  INACTIVE
+  DISCONNECTED
+}
+
+enum EntryType {
+  FILE
+  FOLDER
+}
+
+enum ScanType {
+  FULL
+  DIFFERENTIAL
+}
+
+enum ScanStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ActivityType {
+  ADDED
+  MODIFIED
+  DELETED
+  RENAMED
+  DISK_STATUS
+}
+
+model Disk {
+  id               String         @id @default(cuid())
+  code             String         @unique
+  name             String
+  rootPath         String         @unique
+  description      String?
+  status           DiskStatus     @default(ACTIVE)
+  isEnabled        Boolean        @default(true)
+  lastScanAt       DateTime?
+  lastFullScanAt   DateTime?
+  lastDiffScanAt   DateTime?
+  lastActivityAt   DateTime?
+  lastTreeSnapshot Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  entries     FileEntry[]
+  scanJobs    ScanJob[]
+  activities  DiskActivity[]
+
+  @@index([status])
+  @@index([isEnabled])
+}
+
+model FileEntry {
+  id            String    @id @default(cuid())
+  diskId        String
+  parentId      String?
+  entryType     EntryType
+  name          String
+  relativePath  String
+  fullPath      String
+  extension     String?
+  size          BigInt?
+  modifiedAt    DateTime?
+  inode         String?
+  fingerprint   String?
+  metadata      Json?
+  checksum      String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  disk          Disk       @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  parent        FileEntry? @relation("EntryChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children      FileEntry[] @relation("EntryChildren")
+
+  @@unique([diskId, relativePath])
+  @@index([diskId, entryType])
+  @@index([diskId, name])
+  @@index([diskId, deletedAt])
+  @@index([diskId, fingerprint])
+  @@index([diskId, inode])
+}
+
+model ScanJob {
+  id          String     @id @default(cuid())
+  diskId       String
+  scanType     ScanType
+  status       ScanStatus @default(PENDING)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  summary      Json?
+  errorMessage String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+ progressPercent Int    @default(0)
+processedItems  Int    @default(0)
+totalItems      Int    @default(0)
+phase           String?
+currentPath     String?
+
+
+  disk       Disk           @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  activities DiskActivity[]
+
+  @@index([diskId, createdAt])
+  @@index([status])
+}
+
+model DiskActivity {
+  id            String       @id @default(cuid())
+  diskId         String
+  scanJobId      String?
+  activityType   ActivityType
+  path           String
+  previousPath   String?
+  details        Json?
+  acknowledgedAt DateTime?
+  createdAt      DateTime     @default(now())
+
+  disk       Disk     @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  scanJob    ScanJob? @relation(fields: [scanJobId], references: [id], onDelete: SetNull)
+
+  @@index([diskId, acknowledgedAt])
+  @@index([createdAt])
+  @@index([activityType])
+}

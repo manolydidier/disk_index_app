@@ -5,28 +5,32 @@ export function normalizeDiskRootPath(input: string) {
 
   value = value.replace(/\//g, '\\');
 
-  // Corrige ":F\" -> "F:\"
+  // ":F\" -> "F:\"
   value = value.replace(/^:([a-zA-Z])\\?$/, '$1:\\');
 
-  // Corrige "F" -> "F:\"
+  // "F" -> "F:\"
   if (/^[a-zA-Z]$/.test(value)) {
     return `${value.toUpperCase()}:\\`;
   }
 
-  // Corrige "F:" -> "F:\"
+  // "F:" -> "F:\"
   if (/^[a-zA-Z]:$/.test(value)) {
     return `${value.toUpperCase()}\\`;
   }
 
-  // Corrige "F\" -> "F:\"
+  // "F\" -> "F:\"
   if (/^[a-zA-Z]\\$/.test(value)) {
     return `${value[0].toUpperCase()}:\\`;
   }
 
-  // Corrige "f:\" -> "F:\"
+  // "f:\" -> "F:\"
   if (/^[a-zA-Z]:\\/.test(value)) {
     return `${value[0].toUpperCase()}${value.slice(1)}`;
   }
 
   return value;
+}
+
+export function isWindowsDriveRootPath(value: string) {
+  return /^[A-Z]:\\$/i.test(value.trim());
 }

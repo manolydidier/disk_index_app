@@ -76,6 +76,8 @@ export async function PATCH(
 
     return NextResponse.json(jsonSafe(disk));
   } catch (error) {
+    console.error('DISK UPDATE ERROR:', error);
+
     return NextResponse.json(
       {
         error:

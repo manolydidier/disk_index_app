@@ -1,186 +1,121 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Loader2, RefreshCw, SearchCheck } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
+
+type ScanType = 'FULL' | 'DIFFERENTIAL';
 
 type ScanButtonProps = {
   diskId: string;
-  scanType: 'FULL' | 'DIFFERENTIAL';
+  scanType: ScanType;
 };
 
-type StartResponse = {
-  jobId: string;
-  status: 'RUNNING' | 'COMPLETED' | 'FAILED';
-  progressPercent: number;
-};
-
-type JobResponse = {
+type ScanJob = {
   id: string;
   status: 'RUNNING' | 'COMPLETED' | 'FAILED';
-  progressPercent: number;
-  processedItems: number;
-  totalItems: number;
+  progressPercent: number | null;
   phase: string | null;
-  currentPath: string | null;
+  processedItems: number | null;
+  totalItems: number | null;
   errorMessage: string | null;
-  summary?: {
-    added?: number;
-    modified?: number;
-    renamed?: number;
-    deleted?: number;
-    totalIndexed?: number;
-  };
 };
 
-function extractErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== 'object') {
-    return fallback;
-  }
-
-  const data = payload as {
-    error?: unknown;
-  };
-
-  if (typeof data.error === 'string') {
-    return data.error;
-  }
-
-  if (
-    data.error &&
-    typeof data.error === 'object' &&
-    'fieldErrors' in data.error
-  ) {
-    const fieldErrors = (data.error as { fieldErrors?: Record<string, string[]> })
-      .fieldErrors;
-
-    if (fieldErrors) {
-      for (const messages of Object.values(fieldErrors)) {
-        if (messages?.length) {
-          return messages[0];
-        }
-      }
-    }
-  }
-
-  return fallback;
-}
-
 export function ScanButton({ diskId, scanType }: ScanButtonProps) {
-  const router = useRouter();
-  const pollingRef = useRef<number | null>(null);
-
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [phase, setPhase] = useState<string>('PRÊT');
-  const [currentPath, setCurrentPath] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [maxDepth, setMaxDepth] = useState<string>('3');
-  const [inlineError, setInlineError] = useState<string | null>(null);
-
-  const label = scanType === 'FULL' ? 'Scan complet' : 'Scan différentiel';
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [phase, setPhase] = useState<string | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!jobId) return;
-
-    async function poll() {
-      try {
-        const response = await fetch(`/api/scan-jobs/${jobId}`, {
-          cache: 'no-store'
-        });
-
-        const payload: JobResponse | { error?: string } = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            'error' in payload
-              ? payload.error ?? 'Job introuvable.'
-              : 'Job introuvable.'
-          );
-        }
-
-        setProgress(payload.progressPercent ?? 0);
-        setPhase(payload.phase ?? 'EN COURS');
-        setCurrentPath(payload.currentPath ?? '');
-
-        if (payload.status === 'COMPLETED') {
-          if (pollingRef.current) {
-            window.clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-
-          setIsLoading(false);
-          setJobId(null);
-
-          toast.success(`${label} terminé`, {
-            description: payload.summary
-              ? `Ajouts: ${payload.summary.added ?? 0}, modifiés: ${payload.summary.modified ?? 0}, renommés: ${payload.summary.renamed ?? 0}, supprimés: ${payload.summary.deleted ?? 0}.`
-              : 'Le scan a été exécuté avec succès.'
-          });
-
-          router.refresh();
-        }
-
-        if (payload.status === 'FAILED') {
-          if (pollingRef.current) {
-            window.clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-
-          setIsLoading(false);
-          setJobId(null);
-
-          const message = payload.errorMessage || 'Le scan a échoué.';
-          setInlineError(message);
-
-          toast.error('Échec du scan', {
-            description: message
-          });
-        }
-      } catch (error) {
-        if (pollingRef.current) {
-          window.clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Impossible de suivre la progression du scan.';
-
-        setIsLoading(false);
-        setJobId(null);
-        setInlineError(message);
-
-        toast.error('Erreur de suivi', {
-          description: message
-        });
-      }
-    }
-
-    void poll();
-    pollingRef.current = window.setInterval(() => {
-      void poll();
-    }, 1000);
-
     return () => {
-      if (pollingRef.current) {
-        window.clearInterval(pollingRef.current);
-        pollingRef.current = null;
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
       }
     };
-  }, [jobId, label, router]);
+  }, []);
 
-  async function handleClick() {
-    setInlineError(null);
-    setIsLoading(true);
+  async function pollJob(jobId: string) {
+    try {
+      const response = await fetch(`/api/scan-jobs/${jobId}`, {
+        cache: 'no-store'
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as
+        | ScanJob
+        | { error?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          'error' in payload && payload.error
+            ? payload.error
+            : 'Impossible de suivre le scan.'
+        );
+      }
+
+      if (!('status' in payload)) return;
+
+      setProgress(payload.progressPercent ?? 0);
+      setPhase(payload.phase ?? null);
+
+      if (payload.status === 'COMPLETED') {
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+
+        setLoading(false);
+        setProgress(100);
+
+        toast.success('Scan terminé', {
+          description:
+            scanType === 'FULL'
+              ? 'Le scan complet est terminé.'
+              : 'Le scan différentiel est terminé.'
+        });
+
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      }
+
+      if (payload.status === 'FAILED') {
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+
+        setLoading(false);
+        setProgress(null);
+
+        toast.error('Échec du scan', {
+          description: payload.errorMessage || 'Le scan a échoué.'
+        });
+      }
+    } catch (error) {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+
+      setLoading(false);
+      setProgress(null);
+
+      toast.error('Suivi impossible', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Impossible de suivre le scan.'
+      });
+    }
+  }
+
+  async function handleScan() {
+    setLoading(true);
     setProgress(0);
     setPhase('INITIALISATION');
-    setCurrentPath('');
 
     try {
       const response = await fetch(`/api/disks/${diskId}/scan`, {
@@ -188,110 +123,79 @@ export function ScanButton({ diskId, scanType }: ScanButtonProps) {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          scanType,
-          maxDepth:
-            maxDepth.trim() === '' ? undefined : Number.parseInt(maxDepth, 10),
-          excludeHidden: true
-        })
+        body: JSON.stringify({ scanType })
       });
 
-      const payload: StartResponse | { error?: unknown } = await response
-        .json()
-        .catch(() => ({}));
+      const payload = (await response.json().catch(() => ({}))) as
+        | { id?: string; error?: string }
+        | Record<string, unknown>;
 
       if (!response.ok) {
         throw new Error(
-          extractErrorMessage(payload, 'Impossible de démarrer le scan.')
+          'error' in payload && typeof payload.error === 'string'
+            ? payload.error
+            : 'Impossible de lancer le scan.'
         );
       }
 
-      setJobId(payload.jobId);
-      setProgress(payload.progressPercent ?? 0);
+      const jobId =
+        'id' in payload && typeof payload.id === 'string'
+          ? payload.id
+          : null;
 
-      toast.info(label, {
+      if (!jobId) {
+        throw new Error('Job de scan introuvable.');
+      }
+
+      jobIdRef.current = jobId;
+
+      toast.success('Scan démarré', {
         description:
-          maxDepth.trim() === ''
-            ? 'Le scan a démarré.'
-            : `Le scan a démarré jusqu’au niveau ${maxDepth}.`
+          scanType === 'FULL'
+            ? 'Le scan complet a démarré.'
+            : 'Le scan différentiel a démarré.'
       });
+
+      await pollJob(jobId);
+
+      pollRef.current = window.setInterval(() => {
+        if (jobIdRef.current) {
+          void pollJob(jobIdRef.current);
+        }
+      }, 1500);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Impossible de démarrer le scan.';
+      setLoading(false);
+      setProgress(null);
 
-      setIsLoading(false);
-      setInlineError(message);
-
-      toast.error('Impossible de démarrer le scan', {
-        description: message
+      toast.error('Impossible de lancer le scan', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Le scan ne peut pas démarrer.'
       });
     }
   }
 
+  const label =
+    scanType === 'FULL' ? 'Scan complet' : 'Scan différentiel';
+
   return (
-    <div className="w-full min-w-[260px] max-w-[320px] space-y-2">
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">
-          Niveau max
-        </label>
-        <Input
-          type="number"
-          min={1}
-          max={100}
-          value={maxDepth}
-          onChange={(e) => setMaxDepth(e.target.value)}
-          disabled={isLoading}
-          placeholder="Ex. 3"
-        />
-      </div>
+    <Button
+      type="button"
+      variant={scanType === 'FULL' ? 'outline' : 'default'}
+      onClick={() => void handleScan()}
+      disabled={loading}
+      className="justify-start"
+    >
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <RefreshCw className="h-4 w-4" />
+      )}
 
-      <Button
-        type="button"
-        variant={scanType === 'FULL' ? 'secondary' : 'default'}
-        className="w-full"
-        onClick={handleClick}
-        disabled={isLoading}
-      >
-        {isLoading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {progress}%
-          </>
-        ) : scanType === 'FULL' ? (
-          <>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {label}
-          </>
-        ) : (
-          <>
-            <SearchCheck className="mr-2 h-4 w-4" />
-            {label}
-          </>
-        )}
-      </Button>
-
-      {isLoading ? (
-        <div className="space-y-2 rounded-md border p-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{phase}</span>
-            <span>{progress}%</span>
-          </div>
-
-          <Progress value={progress} />
-
-          <p className="line-clamp-2 text-xs text-muted-foreground">
-            {currentPath || 'Préparation du scan...'}
-          </p>
-        </div>
-      ) : null}
-
-      {inlineError ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {inlineError}
-        </div>
-      ) : null}
-    </div>
+      {loading && progress !== null
+        ? `${label} • ${progress}%${phase ? ` • ${phase}` : ''}`
+        : label}
+    </Button>
   );
 }

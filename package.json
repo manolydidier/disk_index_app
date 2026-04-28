@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "agent:start": "tsx agent/index.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -22,6 +23,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "dotenv": "^17.4.2",
     "lucide-react": "^0.454.0",
     "next": "^15.0.0",
     "react": "^19.0.0",

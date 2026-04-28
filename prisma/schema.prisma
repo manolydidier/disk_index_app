@@ -54,11 +54,21 @@ model Disk {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
+
   entries     FileEntry[]
   scanJobs    ScanJob[]
   activities  DiskActivity[]
 
+sourceType    DiskSourceType @default(SERVER)
+agentDeviceId String?
+sourceLabel   String?
+remoteDiskKey String?
+lastSeenAt    DateTime?
+agentDevice   AgentDevice?   @relation(fields: [agentDeviceId], references: [id], onDelete: SetNull)
+
+@@unique([agentDeviceId, remoteDiskKey])
 automationPreference DiskAutomationPreference?
+
 automationEvents     AutomationEvent[]
 
   @@index([status])
@@ -204,4 +214,44 @@ model AutomationEvent {
 
   @@index([diskId, createdAt])
   @@index([isDismissed, createdAt])
+}
+
+enum DiskSourceType {
+  SERVER
+  AGENT
+}
+
+enum AgentDeviceStatus {
+  ONLINE
+  OFFLINE
+  DISABLED
+}
+
+model AgentDevice {
+  id              String            @id @default(cuid())
+  machineId       String            @unique
+  hostName        String
+  userLabel       String?
+  osName          String?
+  appVersion      String?
+  status          AgentDeviceStatus @default(OFFLINE)
+  lastSeenAt      DateTime?
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  disks           Disk[]
+  authTokens      AgentAuthToken[]
+}
+
+model AgentAuthToken {
+  id            String      @id @default(cuid())
+  agentDeviceId String
+  tokenHash     String      @unique
+  createdAt     DateTime    @default(now())
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+
+  agentDevice   AgentDevice @relation(fields: [agentDeviceId], references: [id], onDelete: Cascade)
 }

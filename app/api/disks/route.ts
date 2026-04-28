@@ -35,9 +35,16 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => ({}));
+    console.error('DISK CREATE PAYLOAD:', payload);
+
     const parsed = diskCreateSchema.safeParse(payload);
 
     if (!parsed.success) {
+      console.error(
+        'DISK CREATE VALIDATION ERROR:',
+        parsed.error.flatten()
+      );
+
       return NextResponse.json(
         { error: parsed.error.flatten() },
         { status: 400 }

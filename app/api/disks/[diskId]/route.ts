@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DiskStatus } from '@prisma/client';
+import { DiskStatus, ScanStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { diskUpdateSchema } from '@/lib/validators';
 import { normalizeDiskRootPath } from '@/lib/root-path';
@@ -94,33 +94,87 @@ export async function DELETE(
   _: Request,
   context: { params: Promise<{ diskId: string }> }
 ) {
-  const { diskId } = await context.params;
+  try {
+    const { diskId } = await context.params;
 
-  const disk = await prisma.disk.findUnique({
-    where: { id: diskId },
-    select: { status: true, isEnabled: true }
-  });
+    const disk = await prisma.disk.findUnique({
+      where: { id: diskId },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        isEnabled: true
+      }
+    });
 
-  if (!disk) {
-    return NextResponse.json(
-      { error: 'Disque introuvable.' },
-      { status: 404 }
-    );
-  }
+    if (!disk) {
+      return NextResponse.json(
+        { error: 'Disque introuvable.' },
+        { status: 404 }
+      );
+    }
 
-  if (disk.status === DiskStatus.ACTIVE && disk.isEnabled) {
+    const runningJob = await prisma.scanJob.findFirst({
+      where: {
+        diskId,
+        status: ScanStatus.RUNNING
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (runningJob) {
+      return NextResponse.json(
+        {
+          error:
+            'Un scan est encore en cours sur ce disque. Attends la fin du scan avant de supprimer le disque.'
+        },
+        { status: 400 }
+      );
+    }
+
+    if (disk.status === DiskStatus.ACTIVE && disk.isEnabled) {
+      return NextResponse.json(
+        {
+          error:
+            'Un disque actif ne peut pas être supprimé. Désactive-le d’abord.'
+        },
+        { status: 400 }
+      );
+    }
+
+    await prisma.$transaction([
+      prisma.fileEntry.deleteMany({
+        where: { diskId }
+      }),
+      prisma.diskActivity.deleteMany({
+        where: { diskId }
+      }),
+      prisma.scanJob.deleteMany({
+        where: { diskId }
+      }),
+      prisma.automationEvent.deleteMany({
+        where: { diskId }
+      }),
+      prisma.diskAutomationPreference.deleteMany({
+        where: { diskId }
+      }),
+      prisma.disk.delete({
+        where: { id: diskId }
+      })
+    ]);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('DISK DELETE ERROR:', error);
+
     return NextResponse.json(
       {
         error:
-          'Un disque actif ne peut pas être supprimé. Désactivez-le d’abord.'
+          error instanceof Error
+            ? error.message
+            : 'Impossible de supprimer le disque.'
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
-
-  await prisma.disk.delete({
-    where: { id: diskId }
-  });
-
-  return NextResponse.json({ success: true });
 }

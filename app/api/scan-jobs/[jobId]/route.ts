@@ -2,57 +2,37 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-
-function jsonSafe<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value, (_, currentValue) =>
-      typeof currentValue === 'bigint' ? currentValue.toString() : currentValue
-    )
-  );
-}
 
 export async function GET(
-  _: Request,
+  _request: Request,
   context: { params: Promise<{ jobId: string }> }
 ) {
-  try {
-    const { jobId } = await context.params;
+  const { jobId } = await context.params;
 
-    const job = await prisma.scanJob.findUnique({
-      where: { id: jobId },
-      include: {
-        disk: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            rootPath: true,
-            status: true
-          }
-        }
-      }
-    });
-
-    if (!job) {
-      return NextResponse.json(
-        { error: 'Job introuvable.' },
-        { status: 404 }
-      );
+  const job = await prisma.scanJob.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      status: true,
+      scanType: true,
+      progressPercent: true,
+      processedItems: true,
+      totalItems: true,
+      phase: true,
+      currentPath: true,
+      errorMessage: true,
+      summary: true,
+      startedAt: true,
+      finishedAt: true
     }
+  });
 
-    return NextResponse.json(jsonSafe(job));
-  } catch (error) {
-    console.error('GET /api/scan-jobs/[jobId] ERROR:', error);
-
+  if (!job) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Impossible de charger le job.'
-      },
-      { status: 500 }
+      { error: 'Job de scan introuvable.' },
+      { status: 404 }
     );
   }
+
+  return NextResponse.json(job);
 }

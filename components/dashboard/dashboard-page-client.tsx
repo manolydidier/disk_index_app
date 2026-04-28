@@ -1,43 +1,28 @@
-'use client';
-
 import Link from 'next/link';
-import { useState } from 'react';
 import { DiskStatus } from '@prisma/client';
 import {
   HardDrive,
   Database,
   BellDot,
   Search,
-  Plus,
-  FolderKanban
+  FolderOpen,
+  Activity
 } from 'lucide-react';
+import { prisma } from '@/lib/prisma';
 import { getDiskDisplayLabel, getDiskDisplayTitle } from '@/lib/disk-label';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { DiskForm } from '@/components/disks/disk-form';
 import { ScanButton } from '@/components/disks/scan-button';
 import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
-import { AddDiskDialog } from '@/components/disks/add-disk-dialog';
-
-type DashboardDisk = {
-  id: string;
-  code: string;
-  name: string;
-  rootPath: string;
-  status: DiskStatus;
-  isEnabled: boolean;
-  _count: {
-    entries: number;
-    activities: number;
-  };
-};
-
-type DashboardPageClientProps = {
-  disks: DashboardDisk[];
-  stats: [number, number, number];
-};
 
 const statusLabels: Record<DiskStatus, string> = {
   ACTIVE: 'Actif',
@@ -45,200 +30,225 @@ const statusLabels: Record<DiskStatus, string> = {
   DISCONNECTED: 'Non connecté'
 };
 
-export function DashboardPageClient({
-  disks,
-  stats
-}: DashboardPageClientProps) {
-  const [addDiskOpen, setAddDiskOpen] = useState(false);
+export default async function DashboardPage() {
+  const [disks, stats] = await Promise.all([
+    prisma.disk.findMany({
+      include: {
+        _count: {
+          select: {
+            entries: { where: { deletedAt: null } },
+            activities: { where: { acknowledgedAt: null } }
+          }
+        },
+        scanJobs: {
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
+      },
+      orderBy: { code: 'asc' }
+    }),
+    prisma.$transaction([
+      prisma.disk.count(),
+      prisma.fileEntry.count({ where: { deletedAt: null } }),
+      prisma.diskActivity.count({ where: { acknowledgedAt: null } })
+    ])
+  ]);
 
   return (
-    <>
-      <div className="space-y-6">
-        <section className="grid gap-4 md:grid-cols-3">
-          <StatCard
-            icon={<HardDrive className="h-5 w-5" />}
-            title="Disques gérés"
-            value={String(stats[0])}
-            description="Disques enregistrés dans l’application"
-          />
-          <StatCard
-            icon={<Database className="h-5 w-5" />}
-            title="Entrées indexées"
-            value={stats[1].toLocaleString('fr-FR')}
-            description="Fichiers et dossiers actuellement disponibles"
-          />
-          <StatCard
-            icon={<BellDot className="h-5 w-5" />}
-            title="Alertes en attente"
-            value={String(stats[2])}
-            description="Activités non encore acquittées"
-          />
-        </section>
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-3">
+        <StatCard
+          icon={<HardDrive className="h-5 w-5" />}
+          title="Disques gérés"
+          value={String(stats[0])}
+          description="Disques enregistrés dans l’application"
+        />
+        <StatCard
+          icon={<Database className="h-5 w-5" />}
+          title="Entrées indexées"
+          value={stats[1].toLocaleString('fr-FR')}
+          description="Fichiers et dossiers indexés"
+        />
+        <StatCard
+          icon={<BellDot className="h-5 w-5" />}
+          title="Alertes en attente"
+          value={String(stats[2])}
+          description="Activités non acquittées"
+        />
+      </section>
 
-        <Card>
-          <CardHeader className="gap-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <section className="grid gap-6 xl:grid-cols-[360px_1fr]">
+        <DiskForm />
+
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FolderKanban className="h-5 w-5" />
-                  Inventaire des disques
-                </CardTitle>
+                <CardTitle>Disques enregistrés</CardTitle>
                 <CardDescription>
-                  Tableau de bord optimisé, sans panneau latéral fixe.
+                  Vue plus simple avec actions directes et accès rapide.
                 </CardDescription>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setAddDiskOpen(true)}>
-                  <Plus className="h-4 w-4" />
-                  Ajouter un disque
-                </Button>
-
-                <Button asChild variant="outline">
-                  <Link href="/search">
-                    <Search className="h-4 w-4" />
-                    Ouvrir la recherche
-                  </Link>
-                </Button>
-              </div>
+              <Button asChild variant="outline" className="rounded-full">
+                <Link href="/search">
+                  <Search className="h-4 w-4" />
+                  Ouvrir la recherche
+                </Link>
+              </Button>
             </div>
           </CardHeader>
 
           <CardContent>
-            <div className="rounded-xl border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Disque</TableHead>
-                    <TableHead>Chemin</TableHead>
-                    <TableHead>Statut</TableHead>
-                    <TableHead>Contenu</TableHead>
-                    <TableHead>Accès</TableHead>
-                    <TableHead>Scans</TableHead>
-                    <TableHead>Gestion</TableHead>
-                  </TableRow>
-                </TableHeader>
+            {disks.length === 0 ? (
+              <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                Aucun disque enregistré.
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                {disks.map((disk) => {
+                  const diskLabel = getDiskDisplayLabel({
+                    code: disk.code,
+                    name: disk.name,
+                    rootPath: disk.rootPath,
+                    status: disk.status
+                  });
 
-                <TableBody>
-                  {disks.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className="py-10 text-center text-muted-foreground"
-                      >
-                        Aucun disque enregistré.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    disks.map((disk) => {
-                      const diskLabel = getDiskDisplayLabel({
-                        code: disk.code,
-                        name: disk.name,
-                        rootPath: disk.rootPath,
-                        status: disk.status
-                      });
+                  const diskTitle = getDiskDisplayTitle({
+                    code: disk.code,
+                    name: disk.name,
+                    rootPath: disk.rootPath,
+                    status: disk.status
+                  });
 
-                      const diskTitle = getDiskDisplayTitle({
-                        code: disk.code,
-                        name: disk.name,
-                        rootPath: disk.rootPath,
-                        status: disk.status
-                      });
+                  const lastScan = disk.scanJobs[0] ?? null;
 
-                      return (
-                        <TableRow key={disk.id} className="align-top">
-                          <TableCell className="min-w-[180px]">
-                            <div className="flex flex-col gap-1">
-                              <Link
-                                href={`/disks/${disk.id}`}
-                                className="font-semibold hover:underline"
-                                title={diskTitle}
-                              >
-                                {diskLabel}
-                              </Link>
-                              <span className="text-sm font-medium">
-                                {disk.name}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {disk.code}
-                              </span>
-                            </div>
-                          </TableCell>
-
-                          <TableCell className="max-w-[260px]">
-                            <p className="break-all font-mono text-xs text-muted-foreground">
-                              {disk.rootPath}
-                            </p>
-                          </TableCell>
-
-                          <TableCell>
-                            <Badge
-                              variant={
-                                disk.status === 'ACTIVE'
-                                  ? 'default'
-                                  : disk.status === 'DISCONNECTED'
-                                    ? 'destructive'
-                                    : 'secondary'
-                              }
+                  return (
+                    <Card
+                      key={disk.id}
+                      className="overflow-hidden rounded-2xl border bg-background shadow-sm transition hover:shadow-md"
+                    >
+                      <CardHeader className="space-y-4 pb-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <Link
+                              href={`/disks/${disk.id}`}
+                              className="block text-base font-semibold leading-none hover:underline"
+                              title={diskTitle}
                             >
-                              {statusLabels[disk.status]}
-                            </Badge>
-                          </TableCell>
+                              {diskLabel}
+                            </Link>
 
-                          <TableCell>
-                            <div className="flex flex-col gap-1 text-sm">
-                              <span>
-                                <span className="font-medium">{disk._count.entries}</span>{' '}
-                                éléments indexés
-                              </span>
-                              <span className="text-muted-foreground">
-                                <span className="font-medium">{disk._count.activities}</span>{' '}
-                                alertes
-                              </span>
-                            </div>
-                          </TableCell>
+                            <p className="text-sm text-muted-foreground">
+                              {disk.name}
+                            </p>
+                          </div>
 
-                          <TableCell>
-                            <OpenDiskButton
-                              diskId={disk.id}
-                              rootPath={disk.rootPath}
-                              status={disk.status}
-                            />
-                          </TableCell>
+                          <Badge
+                            variant={
+                              disk.status === 'ACTIVE'
+                                ? 'default'
+                                : disk.status === 'DISCONNECTED'
+                                  ? 'destructive'
+                                  : 'secondary'
+                            }
+                            className="shrink-0"
+                          >
+                            {statusLabels[disk.status]}
+                          </Badge>
+                        </div>
 
-                          <TableCell>
-                            <div className="flex min-w-[260px] flex-col gap-2">
-                              <ScanButton
-                                diskId={disk.id}
-                                scanType="DIFFERENTIAL"
-                              />
-                              <ScanButton
-                                diskId={disk.id}
-                                scanType="FULL"
-                              />
-                            </div>
-                          </TableCell>
+                        <div className="rounded-xl bg-muted/40 px-3 py-2">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Chemin racine
+                          </p>
+                          <p className="mt-1 break-all font-mono text-xs">
+                            {disk.rootPath}
+                          </p>
+                        </div>
+                      </CardHeader>
 
-                          <TableCell>
-                            <DiskRowActions
-                              diskId={disk.id}
-                              isEnabled={disk.isEnabled}
-                              status={disk.status}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <InfoMiniCard
+                            label="Entrées"
+                            value={String(disk._count.entries)}
+                            icon={<Database className="h-4 w-4" />}
+                          />
+                          <InfoMiniCard
+                            label="Alertes"
+                            value={String(disk._count.activities)}
+                            icon={<BellDot className="h-4 w-4" />}
+                          />
+                        </div>
+
+                        <div className="rounded-xl border bg-background px-3 py-3">
+                          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            <Activity className="h-3.5 w-3.5" />
+                            Dernier scan
+                          </div>
+
+                          <div className="mt-2 text-sm">
+                            {lastScan ? (
+                              <div className="space-y-1">
+                                <p className="font-medium">
+                                  {lastScan.scanType === 'FULL'
+                                    ? 'Scan complet'
+                                    : 'Scan différentiel'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Statut : {lastScan.status}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Aucun scan enregistré
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            asChild
+                            variant="outline"
+                            className="h-9 rounded-xl"
+                          >
+                            <Link href={`/disks/${disk.id}`}>
+                              <FolderOpen className="h-4 w-4" />
+                              Détails
+                            </Link>
+                          </Button>
+
+                          <OpenDiskButton
+                            diskId={disk.id}
+                            rootPath={disk.rootPath}
+                            status={disk.status}
+                          />
+                        </div>
+
+                        <div className="grid gap-2">
+                          <ScanButton diskId={disk.id} scanType="DIFFERENTIAL" />
+                          <ScanButton diskId={disk.id} scanType="FULL" />
+                        </div>
+
+                        <div className="pt-1">
+                          <DiskRowActions
+                            diskId={disk.id}
+                            isEnabled={disk.isEnabled}
+                            status={disk.status}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
-      </div>
-
-      <AddDiskDialog open={addDiskOpen} onOpenChange={setAddDiskOpen} />
-    </>
+      </section>
+    </div>
   );
 }
 
@@ -254,11 +264,11 @@ function StatCard({
   description: string;
 }) {
   return (
-    <Card>
+    <Card className="border-0 shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardDescription>{title}</CardDescription>
-          <div className="rounded-lg bg-primary/10 p-2 text-primary">
+          <div className="rounded-xl bg-primary/10 p-2 text-primary">
             {icon}
           </div>
         </div>
@@ -269,5 +279,27 @@ function StatCard({
         <p className="text-sm text-muted-foreground">{description}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function InfoMiniCard({
+  label,
+  value,
+  icon
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border bg-muted/20 px-3 py-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        <span className="text-muted-foreground">{icon}</span>
+      </div>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+    </div>
   );
 }

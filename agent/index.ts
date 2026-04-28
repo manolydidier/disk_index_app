@@ -309,6 +309,7 @@ async function sendHeartbeat(token: string) {
 
 async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
   const output: IndexedEntry[] = [];
+  let scannedCount = 0;
 
   async function walk(currentAbsolutePath: string) {
     let directory: Awaited<ReturnType<typeof opendir>>;
@@ -340,6 +341,14 @@ async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
 
         if (!relativePath) {
           continue;
+        }
+
+        scannedCount += 1;
+
+        if (scannedCount % 500 === 0) {
+          console.log(
+            `[AGENT] ${rootPath} : ${scannedCount} éléments scannés... dernier = ${relativePath}`
+          );
         }
 
         if (dirent.isDirectory()) {
@@ -374,6 +383,7 @@ async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
 
   await walk(rootPath);
 
+  console.log(`[AGENT] Scan terminé pour ${rootPath} : ${scannedCount} éléments.`);
   return output.sort((a, b) =>
     a.relativePath.localeCompare(b.relativePath, 'fr')
   );

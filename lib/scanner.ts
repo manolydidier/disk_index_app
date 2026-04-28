@@ -117,7 +117,7 @@ export async function startDiskScan(
   });
 
   setImmediate(() => {
-    runDiskScanJob(job.id, diskId, scanType, options).catch((error) => {
+    executeDiskScan(job.id, diskId, scanType, options).catch((error) => {
       console.error('SCAN BACKGROUND ERROR:', error);
     });
   });
@@ -130,6 +130,56 @@ export async function runDiskScan(
   scanType: ScanType = ScanType.DIFFERENTIAL
 ) {
   return startDiskScan(diskId, scanType);
+}
+
+export async function runDiskScanSync(
+  diskId: string,
+  scanType: ScanType = ScanType.DIFFERENTIAL,
+  options?: ScanOptions
+) {
+  const disk = await prisma.disk.findUnique({
+    where: { id: diskId },
+    select: { id: true }
+  });
+
+  if (!disk) {
+    throw new Error('Disque introuvable.');
+  }
+
+  await markStaleRunningJobsFailed(diskId);
+
+  const runningJob = await prisma.scanJob.findFirst({
+    where: {
+      diskId,
+      status: ScanStatus.RUNNING
+    },
+    orderBy: { startedAt: 'desc' }
+  });
+
+  if (runningJob) {
+    throw new Error('Un scan est déjà en cours sur ce disque.');
+  }
+
+  const job = await prisma.scanJob.create({
+    data: {
+      diskId,
+      scanType,
+      status: ScanStatus.RUNNING,
+      startedAt: new Date(),
+      progressPercent: 0,
+      processedItems: 0,
+      totalItems: 0,
+      phase: 'INITIALISATION',
+      currentPath: null
+    }
+  });
+
+  const summary = await executeDiskScan(job.id, diskId, scanType, options);
+
+  return {
+    jobId: job.id,
+    ...summary
+  };
 }
 
 async function markStaleRunningJobsFailed(diskId: string) {
@@ -157,6 +207,19 @@ async function runDiskScanJob(
   scanType: ScanType,
   options?: ScanOptions
 ) {
+  try {
+    await executeDiskScan(scanJobId, diskId, scanType, options);
+  } catch (error) {
+    console.error('SCAN BACKGROUND ERROR:', error);
+  }
+}
+
+async function executeDiskScan(
+  scanJobId: string,
+  diskId: string,
+  scanType: ScanType,
+  options?: ScanOptions
+): Promise<ScanSummary> {
   const disk = await prisma.disk.findUnique({
     where: { id: diskId },
     select: {
@@ -170,7 +233,7 @@ async function runDiskScanJob(
 
   if (!disk) {
     await markJobFailed(scanJobId, 'Disque introuvable.');
-    return;
+    throw new Error('Disque introuvable.');
   }
 
   try {
@@ -234,6 +297,8 @@ async function runDiskScanJob(
     console.log(
       `[SCAN ${scanJobId}] Terminé - total=${summary.totalIndexed}, ajoutés=${summary.added}, modifiés=${summary.modified}, supprimés=${summary.deleted}`
     );
+
+    return summary;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Erreur de scan inconnue';
@@ -265,9 +330,9 @@ async function runDiskScanJob(
     }
 
     await markJobFailed(scanJobId, message);
+    throw new Error(message);
   }
 }
-
 async function markJobFailed(scanJobId: string, message: string) {
   await prisma.scanJob.update({
     where: { id: scanJobId },

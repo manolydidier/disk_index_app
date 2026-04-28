@@ -15,6 +15,31 @@ export default async function DashboardPage() {
         scanJobs: {
           orderBy: { createdAt: 'desc' },
           take: 1
+        },
+        agentDevice: {
+          select: {
+            id: true,
+            machineId: true,
+            hostName: true,
+            userLabel: true,
+            status: true,
+            lastHeartbeatAt: true,
+            lastSeenAt: true
+          }
+        },
+        agentCommands: {
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            commandType: true,
+            status: true,
+            progressPercent: true,
+            phase: true,
+            currentPath: true,
+            errorMessage: true,
+            updatedAt: true
+          }
         }
       },
       orderBy: { code: 'asc' }
@@ -28,6 +53,7 @@ export default async function DashboardPage() {
 
   const preparedDisks = disks.map((disk) => {
     const lastScan = disk.scanJobs[0] ?? null;
+    const latestAgentCommand = disk.agentCommands[0] ?? null;
 
     return {
       id: disk.id,
@@ -36,12 +62,39 @@ export default async function DashboardPage() {
       rootPath: disk.rootPath,
       status: disk.status,
       isEnabled: disk.isEnabled,
+      sourceType: disk.sourceType,
+      sourceLabel: disk.sourceLabel,
+      remoteDiskKey: disk.remoteDiskKey,
+      lastSeenAt: disk.lastSeenAt?.toISOString() ?? null,
       entriesCount: disk._count.entries,
       activitiesCount: disk._count.activities,
       lastScan: lastScan
         ? {
             scanType: lastScan.scanType,
             status: lastScan.status
+          }
+        : null,
+      latestAgentCommand: latestAgentCommand
+        ? {
+            id: latestAgentCommand.id,
+            commandType: latestAgentCommand.commandType,
+            status: latestAgentCommand.status,
+            progressPercent: latestAgentCommand.progressPercent,
+            phase: latestAgentCommand.phase,
+            currentPath: latestAgentCommand.currentPath,
+            errorMessage: latestAgentCommand.errorMessage,
+            updatedAt: latestAgentCommand.updatedAt.toISOString()
+          }
+        : null,
+      agentDevice: disk.agentDevice
+        ? {
+            id: disk.agentDevice.id,
+            machineId: disk.agentDevice.machineId,
+            hostName: disk.agentDevice.hostName,
+            userLabel: disk.agentDevice.userLabel,
+            status: disk.agentDevice.status,
+            lastHeartbeatAt: disk.agentDevice.lastHeartbeatAt?.toISOString() ?? null,
+            lastSeenAt: disk.agentDevice.lastSeenAt?.toISOString() ?? null
           }
         : null,
       displayLabel: getDiskDisplayLabel({

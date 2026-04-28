@@ -18,6 +18,25 @@ type IndexedEntry = {
   modifiedAt?: string | null;
 };
 
+type PreparedEntry = {
+  diskId: string;
+  name: string;
+  entryType: EntryType;
+  relativePath: string;
+  fullPath: string;
+  extension: string | null;
+  size: bigint | null;
+  modifiedAt: Date | null;
+  inode: string | null;
+  fingerprint: string;
+  metadata: {
+    importedBy: string;
+    agentDeviceId: string;
+    agentHostName: string;
+  };
+  parentRelativePath: string | null;
+};
+
 function normalizeRelativePath(value: string) {
   return String(value ?? '')
     .replace(/\\/g, '/')
@@ -41,20 +60,15 @@ function getExtension(
   fallback?: string | null
 ) {
   if (type !== 'file') return null;
-  if (fallback) return fallback.toLowerCase().trim() || null;
+  if (fallback) return fallback.toLowerCase();
 
   const ext = path.extname(name).replace('.', '').toLowerCase();
   return ext || null;
 }
 
-function buildFingerprint(entry: {
-  name: string;
-  relativePath: string;
-  type: 'file' | 'folder';
-  extension?: string | null;
-  size?: number | null;
-  modifiedAt?: string | null;
-}) {
+function buildFingerprint(
+  entry: IndexedEntry & { relativePath: string; extension: string | null }
+) {
   return crypto
     .createHash('sha1')
     .update(
@@ -80,47 +94,6 @@ function chunkArray<T>(items: T[], chunkSize: number) {
   return chunks;
 }
 
-function isValidEntry(entry: unknown): entry is IndexedEntry {
-  if (!entry || typeof entry !== 'object') return false;
-
-  const data = entry as Partial<IndexedEntry>;
-
-  return (
-    typeof data.name === 'string' &&
-    typeof data.relativePath === 'string' &&
-    (data.type === 'file' || data.type === 'folder')
-  );
-}
-
-function normalizeEntry(entry: IndexedEntry) {
-  const name = String(entry.name ?? '').trim();
-  const relativePath = normalizeRelativePath(entry.relativePath);
-
-  if (!name || !relativePath) {
-    return null;
-  }
-
-  const type = entry.type === 'folder' ? 'folder' : 'file';
-  const extension = getExtension(name, type, entry.extension);
-  const parentRelativePath = getParentRelativePath(relativePath);
-
-  return {
-    name,
-    relativePath,
-    type,
-    extension,
-    size:
-      type === 'file' && typeof entry.size === 'number' && Number.isFinite(entry.size)
-        ? Math.max(0, Math.floor(entry.size))
-        : null,
-    modifiedAt:
-      typeof entry.modifiedAt === 'string' && entry.modifiedAt.trim()
-        ? entry.modifiedAt
-        : null,
-    parentRelativePath
-  };
-}
-
 export async function POST(request: Request) {
   try {
     const agent = await authenticateAgentRequest(request);
@@ -131,20 +104,9 @@ export async function POST(request: Request) {
     const rootPath = String(body.rootPath ?? '').trim();
     const isConnected = body.isConnected !== false;
     const description = String(body.description ?? '').trim() || null;
-
-    const rawEntries = Array.isArray(body.entries) ? body.entries : [];
-    const validEntries = rawEntries.filter(isValidEntry);
-    const normalizedEntries = validEntries
-      .map(normalizeEntry)
-      .filter(Boolean) as Array<{
-      name: string;
-      relativePath: string;
-      type: 'file' | 'folder';
-      extension: string | null;
-      size: number | null;
-      modifiedAt: string | null;
-      parentRelativePath: string | null;
-    }>;
+    const entries = Array.isArray(body.entries)
+      ? (body.entries as IndexedEntry[])
+      : [];
 
     if (!remoteDiskKey || !diskName || !rootPath) {
       return NextResponse.json(
@@ -152,18 +114,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    console.log('[AGENT INDEX FULL] Début import:', {
-      agentId: agent.id,
-      machineId: agent.machineId,
-      hostName: agent.hostName,
-      remoteDiskKey,
-      diskName,
-      rootPath,
-      isConnected,
-      receivedEntries: rawEntries.length,
-      validEntries: normalizedEntries.length
-    });
 
     let disk = await prisma.disk.findFirst({
       where: {
@@ -187,11 +137,6 @@ export async function POST(request: Request) {
           lastSeenAt: new Date()
         }
       });
-
-      console.log('[AGENT INDEX FULL] Nouveau disque créé:', {
-        diskId: disk.id,
-        code: disk.code
-      });
     } else {
       disk = await prisma.disk.update({
         where: { id: disk.id },
@@ -205,11 +150,6 @@ export async function POST(request: Request) {
           remoteDiskKey,
           lastSeenAt: new Date()
         }
-      });
-
-      console.log('[AGENT INDEX FULL] Disque existant mis à jour:', {
-        diskId: disk.id,
-        code: disk.code
       });
     }
 
@@ -228,47 +168,79 @@ export async function POST(request: Request) {
       }
     });
 
-    const preparedEntries = normalizedEntries.map((entry) => {
-      const fullPath = entry.relativePath
-        ? `${disk.code}/${entry.relativePath}`
-        : disk.code;
+    const preparedEntries: PreparedEntry[] = entries.map((entry) => {
+      const relativePath = normalizeRelativePath(entry.relativePath);
+      const extension = getExtension(entry.name, entry.type, entry.extension);
+      const parentRelativePath = getParentRelativePath(relativePath);
+      const fullPath = relativePath ? `${disk.code}/${relativePath}` : disk.code;
 
       return {
         diskId: disk.id,
         name: entry.name,
         entryType: entry.type === 'folder' ? EntryType.FOLDER : EntryType.FILE,
-        relativePath: entry.relativePath,
+        relativePath,
         fullPath,
-        extension: entry.extension,
+        extension,
         size:
-          entry.type === 'file' && entry.size !== null
+          entry.type === 'file' && typeof entry.size === 'number'
             ? BigInt(entry.size)
             : null,
         modifiedAt: entry.modifiedAt ? new Date(entry.modifiedAt) : null,
         inode: null,
         fingerprint: buildFingerprint({
-          name: entry.name,
-          relativePath: entry.relativePath,
-          type: entry.type,
-          extension: entry.extension,
-          size: entry.size,
-          modifiedAt: entry.modifiedAt
+          ...entry,
+          relativePath,
+          extension
         }),
         metadata: {
           importedBy: 'agent',
           agentDeviceId: agent.id,
-          agentHostName: agent.hostName,
-          machineId: agent.machineId
+          agentHostName: agent.hostName
         },
-        parentRelativePath: entry.parentRelativePath
+        parentRelativePath
       };
     });
 
     for (const chunk of chunkArray(preparedEntries, 1000)) {
       await prisma.fileEntry.createMany({
-        data: chunk,
+        data: chunk.map(({ parentRelativePath: _parentRelativePath, ...entry }) => entry),
         skipDuplicates: true
       });
+    }
+
+    const createdEntries = await prisma.fileEntry.findMany({
+      where: {
+        diskId: disk.id,
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        relativePath: true
+      }
+    });
+
+    const idByRelativePath = new Map(
+      createdEntries.map((entry) => [entry.relativePath, entry.id])
+    );
+
+    for (const chunk of chunkArray(preparedEntries, 500)) {
+      await Promise.all(
+        chunk.map((entry) => {
+          const entryId = idByRelativePath.get(entry.relativePath);
+          const parentId = entry.parentRelativePath
+            ? (idByRelativePath.get(entry.parentRelativePath) ?? null)
+            : null;
+
+          if (!entryId) {
+            return Promise.resolve();
+          }
+
+          return prisma.fileEntry.update({
+            where: { id: entryId },
+            data: { parentId }
+          });
+        })
+      );
     }
 
     await prisma.disk.update({
@@ -280,12 +252,6 @@ export async function POST(request: Request) {
       }
     });
 
-    console.log('[AGENT INDEX FULL] Import terminé:', {
-      diskId: disk.id,
-      code: disk.code,
-      indexedEntries: preparedEntries.length
-    });
-
     return NextResponse.json({
       success: true,
       diskId: disk.id,
@@ -293,8 +259,6 @@ export async function POST(request: Request) {
       indexedEntries: preparedEntries.length
     });
   } catch (error) {
-    console.error('[AGENT INDEX FULL] ERREUR:', error);
-
     return NextResponse.json(
       {
         error:

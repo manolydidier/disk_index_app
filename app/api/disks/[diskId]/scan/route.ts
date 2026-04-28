@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { ScanType } from '@prisma/client';
+import { DiskSourceType, ScanType } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { startDiskScan } from '@/lib/scanner';
 import { scanRequestSchema } from '@/lib/validators';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   request: Request,
@@ -21,6 +23,33 @@ export async function POST(
   }
 
   try {
+    const disk = await prisma.disk.findUnique({
+      where: { id: diskId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        sourceType: true
+      }
+    });
+
+    if (!disk) {
+      return NextResponse.json(
+        { error: 'Disque introuvable.' },
+        { status: 404 }
+      );
+    }
+
+    if (disk.sourceType !== DiskSourceType.SERVER) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce disque n'est pas géré par le serveur. Utilisez le scan agent."
+        },
+        { status: 400 }
+      );
+    }
+
     const job = await startDiskScan(
       diskId,
       parsed.data.scanType === 'FULL'
@@ -30,9 +59,11 @@ export async function POST(
 
     return NextResponse.json(
       {
+        id: job.id,
         jobId: job.id,
+        diskId: job.diskId,
         status: job.status,
-        progressPercent: job.progressPercent
+        progressPercent: job.progressPercent ?? 0
       },
       { status: 202 }
     );

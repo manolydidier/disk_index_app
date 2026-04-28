@@ -38,11 +38,35 @@ enum ActivityType {
   DISK_STATUS
 }
 
+enum AutomationEventType {
+  NEW_DISK_DETECTED
+  DISK_CHANGED
+}
+
+enum AutomationActionState {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  MUTED
+  AUTO_STARTED
+}
+
+enum DiskSourceType {
+  SERVER
+  AGENT
+}
+
+enum AgentDeviceStatus {
+  ONLINE
+  OFFLINE
+  DISABLED
+}
+
 model Disk {
   id               String         @id @default(cuid())
   code             String         @unique
   name             String
-  rootPath         String         @unique
+  rootPath         String
   description      String?
   status           DiskStatus     @default(ACTIVE)
   isEnabled        Boolean        @default(true)
@@ -54,29 +78,29 @@ model Disk {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
+  sourceType       DiskSourceType @default(SERVER)
+  agentDeviceId    String?
+  sourceLabel      String?
+  remoteDiskKey    String?
+  lastSeenAt       DateTime?
+  agentDevice      AgentDevice?   @relation(fields: [agentDeviceId], references: [id], onDelete: SetNull)
 
-  entries     FileEntry[]
-  scanJobs    ScanJob[]
-  activities  DiskActivity[]
+agentCommands AgentCommand[]
+  entries          FileEntry[]
+  scanJobs         ScanJob[]
+  activities       DiskActivity[]
 
-sourceType    DiskSourceType @default(SERVER)
-agentDeviceId String?
-sourceLabel   String?
-remoteDiskKey String?
-lastSeenAt    DateTime?
-agentDevice   AgentDevice?   @relation(fields: [agentDeviceId], references: [id], onDelete: SetNull)
+  automationPreference DiskAutomationPreference?
+  automationEvents     AutomationEvent[]
 
-@@unique([agentDeviceId, remoteDiskKey])
-automationPreference DiskAutomationPreference?
-
-automationEvents     AutomationEvent[]
-
+  @@unique([agentDeviceId, remoteDiskKey])
   @@index([status])
   @@index([isEnabled])
+  @@index([rootPath])
 }
 
 model FileEntry {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   diskId        String
   parentId      String?
   entryType     EntryType
@@ -91,11 +115,11 @@ model FileEntry {
   metadata      Json?
   checksum      String?
   deletedAt     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
-  disk          Disk       @relation(fields: [diskId], references: [id], onDelete: Cascade)
-  parent        FileEntry? @relation("EntryChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  disk          Disk        @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  parent        FileEntry?  @relation("EntryChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children      FileEntry[] @relation("EntryChildren")
 
   @@unique([diskId, relativePath])
@@ -107,26 +131,24 @@ model FileEntry {
 }
 
 model ScanJob {
-  id          String     @id @default(cuid())
-  diskId       String
-  scanType     ScanType
-  status       ScanStatus @default(PENDING)
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  summary      Json?
-  errorMessage String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id              String      @id @default(cuid())
+  diskId          String
+  scanType        ScanType
+  status          ScanStatus  @default(PENDING)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  summary         Json?
+  errorMessage    String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  progressPercent Int         @default(0)
+  processedItems  Int         @default(0)
+  totalItems      Int         @default(0)
+  phase           String?
+  currentPath     String?
 
- progressPercent Int    @default(0)
-processedItems  Int    @default(0)
-totalItems      Int    @default(0)
-phase           String?
-currentPath     String?
-
-
-  disk       Disk           @relation(fields: [diskId], references: [id], onDelete: Cascade)
-  activities DiskActivity[]
+  disk            Disk           @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  activities      DiskActivity[]
 
   @@index([diskId, createdAt])
   @@index([status])
@@ -143,40 +165,28 @@ model DiskActivity {
   acknowledgedAt DateTime?
   createdAt      DateTime     @default(now())
 
-  disk       Disk     @relation(fields: [diskId], references: [id], onDelete: Cascade)
-  scanJob    ScanJob? @relation(fields: [scanJobId], references: [id], onDelete: SetNull)
+  disk           Disk         @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  scanJob        ScanJob?     @relation(fields: [scanJobId], references: [id], onDelete: SetNull)
 
   @@index([diskId, acknowledgedAt])
   @@index([createdAt])
   @@index([activityType])
 }
-enum AutomationEventType {
-  NEW_DISK_DETECTED
-  DISK_CHANGED
-}
-
-enum AutomationActionState {
-  PENDING
-  ACCEPTED
-  DISMISSED
-  MUTED
-  AUTO_STARTED
-}
 
 model AutomationSettings {
-  id                        Int      @id
-  isEnabled                 Boolean  @default(true)
-  detectNewDisks            Boolean  @default(true)
-  watchIndexedDisks         Boolean  @default(true)
-  confirmBeforeUpdate       Boolean  @default(true)
-  autoUpdateWithoutPrompt   Boolean  @default(false)
-  showSystemNotifications   Boolean  @default(true)
-  ignoredRoots              Json?
-  ignoredPathPatterns       Json?
-  notificationCooldownSeconds Int    @default(30)
-  changeDebounceSeconds     Int      @default(8)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  id                          Int      @id
+  isEnabled                   Boolean  @default(true)
+  detectNewDisks              Boolean  @default(true)
+  watchIndexedDisks           Boolean  @default(true)
+  confirmBeforeUpdate         Boolean  @default(true)
+  autoUpdateWithoutPrompt     Boolean  @default(false)
+  showSystemNotifications     Boolean  @default(true)
+  ignoredRoots                Json?
+  ignoredPathPatterns         Json?
+  notificationCooldownSeconds Int      @default(30)
+  changeDebounceSeconds       Int      @default(8)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 }
 
 model DiskAutomationPreference {
@@ -192,7 +202,7 @@ model DiskAutomationPreference {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
-  disk Disk @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  disk                    Disk     @relation(fields: [diskId], references: [id], onDelete: Cascade)
 }
 
 model AutomationEvent {
@@ -210,21 +220,10 @@ model AutomationEvent {
   createdAt      DateTime              @default(now())
   actedAt        DateTime?
 
-  disk Disk? @relation(fields: [diskId], references: [id], onDelete: SetNull)
+  disk           Disk?                 @relation(fields: [diskId], references: [id], onDelete: SetNull)
 
   @@index([diskId, createdAt])
   @@index([isDismissed, createdAt])
-}
-
-enum DiskSourceType {
-  SERVER
-  AGENT
-}
-
-enum AgentDeviceStatus {
-  ONLINE
-  OFFLINE
-  DISABLED
 }
 
 model AgentDevice {
@@ -239,9 +238,10 @@ model AgentDevice {
   lastHeartbeatAt DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
-
+commands AgentCommand[]
   disks           Disk[]
   authTokens      AgentAuthToken[]
+  availableDisks  AgentAvailableDisk[]
 }
 
 model AgentAuthToken {
@@ -254,4 +254,63 @@ model AgentAuthToken {
   revokedAt     DateTime?
 
   agentDevice   AgentDevice @relation(fields: [agentDeviceId], references: [id], onDelete: Cascade)
+}
+
+model AgentAvailableDisk {
+  id            String      @id @default(cuid())
+  agentDeviceId String
+  remoteDiskKey String
+  rootPath      String
+  displayName   String
+  driveType     String?
+  isRemovable   Boolean     @default(false)
+  isConnected   Boolean     @default(true)
+  lastSeenAt    DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  agentDevice   AgentDevice @relation(fields: [agentDeviceId], references: [id], onDelete: Cascade)
+
+  @@unique([agentDeviceId, remoteDiskKey])
+  @@index([agentDeviceId, isConnected])
+}
+
+enum AgentCommandType {
+  FULL_SCAN
+  DIFFERENTIAL_SCAN
+  REFRESH_AVAILABLE_DISKS
+}
+
+enum AgentCommandStatus {
+  PENDING
+  CLAIMED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+model AgentCommand {
+  id              String             @id @default(cuid())
+  agentDeviceId   String
+  diskId          String?
+  commandType     AgentCommandType
+  status          AgentCommandStatus @default(PENDING)
+  payload         Json?
+  progressPercent Int                @default(0)
+  phase           String?
+  currentPath     String?
+  result          Json?
+  errorMessage    String?
+  claimedAt       DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  agentDevice     AgentDevice        @relation(fields: [agentDeviceId], references: [id], onDelete: Cascade)
+  disk            Disk?              @relation(fields: [diskId], references: [id], onDelete: SetNull)
+
+  @@index([agentDeviceId, status, createdAt])
+  @@index([diskId, createdAt])
 }

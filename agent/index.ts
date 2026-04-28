@@ -18,6 +18,7 @@ type DetectedDevice = {
   rootPath: string;
   displayName: string;
   isRemovable: boolean;
+  driveType: string | null;
 };
 
 type IndexedEntry = {
@@ -35,6 +36,31 @@ type PowerShellVolume = {
   DriveType?: string;
 };
 
+type AgentCommand = {
+  id: string;
+  commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS';
+  status:
+    | 'PENDING'
+    | 'CLAIMED'
+    | 'RUNNING'
+    | 'COMPLETED'
+    | 'FAILED'
+    | 'CANCELED';
+  disk: {
+    id: string;
+    code: string;
+    name: string;
+    rootPath: string;
+    remoteDiskKey: string | null;
+    sourceType: 'SERVER' | 'AGENT';
+  } | null;
+};
+
+type ScanProgress = {
+  scannedCount: number;
+  currentRelativePath: string;
+};
+
 const SERVER_URL = String(process.env.AGENT_SERVER_URL ?? '').replace(/\/+$/, '');
 const REGISTRATION_SECRET = String(
   process.env.AGENT_REGISTRATION_SECRET ?? ''
@@ -43,6 +69,11 @@ const SCAN_ROOTS = String(process.env.AGENT_SCAN_ROOTS ?? '').trim();
 
 const CONFIG_DIR = path.join(os.homedir(), '.disk-indexer-agent');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const INVENTORY_INTERVAL_MS = 30_000;
+const COMMAND_POLL_INTERVAL_MS = 5_000;
+const COMMAND_STATUS_UPDATE_EVERY_ITEMS = 500;
 
 function assertEnv() {
   if (!SERVER_URL) {
@@ -120,6 +151,10 @@ function isIgnorableFsError(error: unknown) {
   return ['EPERM', 'EACCES', 'EBUSY', 'ENOENT'].includes(code);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function runPowerShell(command: string) {
   return new Promise<string>((resolve, reject) => {
     const child = spawn(
@@ -179,7 +214,8 @@ async function listWindowsVolumes(): Promise<DetectedDevice[]> {
         isRemovable:
           driveType.includes('removable') ||
           driveType.includes('usb') ||
-          driveType.includes('cd')
+          driveType.includes('cd'),
+        driveType: driveType || null
       };
     });
 }
@@ -201,7 +237,7 @@ function resolveRootsToScan(devices: DetectedDevice[]) {
 async function fetchJsonWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs = 20000
+  timeoutMs = 20_000
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -307,9 +343,109 @@ async function sendHeartbeat(token: string) {
   }
 }
 
-async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
+async function syncAvailableDisks(
+  token: string,
+  devices: DetectedDevice[]
+) {
+  const { response, payload } = await fetchJsonWithTimeout(
+    `${SERVER_URL}/api/agent/disks/sync-available`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-agent-token': token
+      },
+      body: JSON.stringify({
+        disks: devices.map((device) => ({
+          remoteDiskKey: device.remoteDiskKey,
+          rootPath: device.rootPath,
+          displayName: device.displayName,
+          driveType: device.driveType,
+          isRemovable: device.isRemovable,
+          isConnected: true
+        }))
+      })
+    }
+  );
+
+  const data = payload as { error?: string; raw?: string; count?: number };
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        data.raw ||
+        'Impossible de synchroniser les disques disponibles.'
+    );
+  }
+
+  console.log(
+    `[AGENT] Disques disponibles synchronisés : ${data.count ?? devices.length}`
+  );
+}
+
+async function fetchNextCommand(token: string) {
+  const { response, payload } = await fetchJsonWithTimeout(
+    `${SERVER_URL}/api/agent/commands/next`,
+    {
+      method: 'GET',
+      headers: {
+        'x-agent-token': token
+      }
+    }
+  );
+
+  const data = payload as {
+    error?: string;
+    command?: AgentCommand | null;
+  };
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Impossible de récupérer la prochaine commande.');
+  }
+
+  return data.command ?? null;
+}
+
+async function updateCommandStatus(
+  token: string,
+  commandId: string,
+  body: {
+    status?: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
+    progressPercent?: number;
+    phase?: string;
+    currentPath?: string;
+    errorMessage?: string;
+    result?: unknown;
+  }
+) {
+  const { response, payload } = await fetchJsonWithTimeout(
+    `${SERVER_URL}/api/agent/commands/${commandId}/status`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-agent-token': token
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const data = payload as { error?: string; raw?: string };
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.raw || 'Impossible de mettre à jour la commande.'
+    );
+  }
+}
+
+async function scanFilesystem(
+  rootPath: string,
+  onProgress?: (progress: ScanProgress) => Promise<void> | void
+): Promise<IndexedEntry[]> {
   const output: IndexedEntry[] = [];
   let scannedCount = 0;
+  let lastProgressNotified = 0;
 
   async function walk(currentAbsolutePath: string) {
     let directory: Awaited<ReturnType<typeof opendir>>;
@@ -351,6 +487,17 @@ async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
           );
         }
 
+        if (
+          onProgress &&
+          scannedCount - lastProgressNotified >= COMMAND_STATUS_UPDATE_EVERY_ITEMS
+        ) {
+          lastProgressNotified = scannedCount;
+          await onProgress({
+            scannedCount,
+            currentRelativePath: relativePath
+          });
+        }
+
         if (dirent.isDirectory()) {
           output.push({
             name: dirent.name,
@@ -383,6 +530,13 @@ async function scanFilesystem(rootPath: string): Promise<IndexedEntry[]> {
 
   await walk(rootPath);
 
+  if (onProgress) {
+    await onProgress({
+      scannedCount,
+      currentRelativePath: ''
+    });
+  }
+
   console.log(`[AGENT] Scan terminé pour ${rootPath} : ${scannedCount} éléments.`);
   return output.sort((a, b) =>
     a.relativePath.localeCompare(b.relativePath, 'fr')
@@ -413,7 +567,7 @@ async function uploadFullIndex(
         entries
       })
     },
-    120000
+    120_000
   );
 
   const data = payload as {
@@ -425,7 +579,9 @@ async function uploadFullIndex(
 
   if (!response.ok) {
     throw new Error(
-      data.error || data.raw || `Impossible d'envoyer l'index. HTTP ${response.status}`
+      data.error ||
+        data.raw ||
+        `Impossible d'envoyer l'index. HTTP ${response.status}`
     );
   }
 
@@ -434,37 +590,161 @@ async function uploadFullIndex(
   );
 }
 
-async function runCycle() {
-  assertEnv();
+async function executeAgentCommand(token: string, command: AgentCommand) {
+  if (command.commandType === 'REFRESH_AVAILABLE_DISKS') {
+    await updateCommandStatus(token, command.id, {
+      status: 'RUNNING',
+      phase: 'ACTUALISATION',
+      progressPercent: 10
+    });
 
-  console.log('[AGENT] SERVER_URL =', SERVER_URL);
-  console.log('[AGENT] SCAN_ROOTS =', SCAN_ROOTS || '(auto)');
+    const devices = await listWindowsVolumes();
+    await syncAvailableDisks(token, devices);
 
-  const { token } = await ensureRegistered();
+    await updateCommandStatus(token, command.id, {
+      status: 'COMPLETED',
+      phase: 'TERMINÉ',
+      progressPercent: 100,
+      result: {
+        refreshed: devices.length
+      }
+    });
 
-  console.log('[AGENT] Envoi heartbeat...');
-  await sendHeartbeat(token);
-
-  console.log('[AGENT] Lecture des volumes Windows...');
-  const devices = await listWindowsVolumes();
-  const selectedDevices = resolveRootsToScan(devices);
-
-  if (selectedDevices.length === 0) {
-    console.log('[AGENT] Aucun disque à scanner.');
     return;
   }
 
-  for (const device of selectedDevices) {
-    console.log(`[AGENT] Scan de ${device.rootPath} (${device.displayName})...`);
-    const entries = await scanFilesystem(device.rootPath);
-    await uploadFullIndex(token, device, entries);
+  if (!command.disk?.remoteDiskKey) {
+    await updateCommandStatus(token, command.id, {
+      status: 'FAILED',
+      phase: 'ERREUR',
+      errorMessage: 'Disque ou remoteDiskKey introuvable.'
+    });
+    return;
+  }
+
+  const devices = await listWindowsVolumes();
+  await syncAvailableDisks(token, devices);
+
+  const scannableDevices = resolveRootsToScan(devices);
+  const device = scannableDevices.find(
+    (item) => item.remoteDiskKey === command.disk?.remoteDiskKey
+  );
+
+  if (!device) {
+    await updateCommandStatus(token, command.id, {
+      status: 'FAILED',
+      phase: 'ERREUR',
+      errorMessage:
+        `Le disque ${command.disk.name} n'est pas disponible ou n'est pas autorisé par AGENT_SCAN_ROOTS.`
+    });
+    return;
+  }
+
+  await updateCommandStatus(token, command.id, {
+    status: 'RUNNING',
+    phase: 'INDEXATION',
+    currentPath: device.rootPath,
+    progressPercent: 5
+  });
+
+  const entries = await scanFilesystem(device.rootPath, async (progress) => {
+    const progressPercent = Math.min(
+      75,
+      5 + Math.floor(progress.scannedCount / COMMAND_STATUS_UPDATE_EVERY_ITEMS) * 3
+    );
+
+    await updateCommandStatus(token, command.id, {
+      status: 'RUNNING',
+      phase: 'INDEXATION',
+      currentPath: progress.currentRelativePath
+        ? `${device.rootPath}${progress.currentRelativePath.replace(/\//g, '\\')}`
+        : device.rootPath,
+      progressPercent
+    });
+  });
+
+  await updateCommandStatus(token, command.id, {
+    status: 'RUNNING',
+    phase: 'ENVOI',
+    currentPath: device.rootPath,
+    progressPercent: 90
+  });
+
+  await uploadFullIndex(token, device, entries);
+
+  await updateCommandStatus(token, command.id, {
+    status: 'COMPLETED',
+    phase: 'TERMINÉ',
+    currentPath: device.rootPath,
+    progressPercent: 100,
+    result: {
+      indexedEntries: entries.length,
+      mode:
+        command.commandType === 'FULL_SCAN' ? 'FULL' : 'DIFFERENTIAL_AS_FULL'
+    }
+  });
+}
+
+async function runPersistentLoop() {
+  assertEnv();
+
+  const registration = await ensureRegistered();
+  const token = registration.token;
+
+  let lastInventoryAt = 0;
+
+  console.log('[AGENT] Mode persistant démarré.');
+
+  while (true) {
+    try {
+      const now = Date.now();
+
+      await sendHeartbeat(token);
+
+      if (now - lastInventoryAt >= INVENTORY_INTERVAL_MS) {
+        const devices = await listWindowsVolumes();
+        console.log('[AGENT] Synchronisation des disques disponibles...');
+        await syncAvailableDisks(token, devices);
+        lastInventoryAt = now;
+      }
+
+      const command = await fetchNextCommand(token);
+
+      if (command) {
+        console.log(
+          `[AGENT] Commande reçue: ${command.commandType} (${command.id})`
+        );
+
+        try {
+          await executeAgentCommand(token, command);
+        } catch (error) {
+          await updateCommandStatus(token, command.id, {
+            status: 'FAILED',
+            phase: 'ERREUR',
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : 'Erreur inconnue pendant la commande.'
+          });
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('[AGENT] ERREUR BOUCLE:', error.message);
+      } else {
+        console.error('[AGENT] ERREUR BOUCLE:', error);
+      }
+    }
+
+    await sleep(Math.min(HEARTBEAT_INTERVAL_MS, COMMAND_POLL_INTERVAL_MS));
   }
 }
 
 async function main() {
   try {
-    await runCycle();
-    console.log('[AGENT] Terminé.');
+    console.log('[AGENT] SERVER_URL =', SERVER_URL);
+    console.log('[AGENT] SCAN_ROOTS =', SCAN_ROOTS || '(auto)');
+    await runPersistentLoop();
   } catch (error) {
     if (error instanceof Error) {
       console.error('[AGENT] ERREUR:', error.message);

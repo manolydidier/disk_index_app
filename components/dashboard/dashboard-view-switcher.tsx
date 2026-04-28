@@ -1,26 +1,27 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition
-} from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { DiskStatus } from '@prisma/client';
 import {
   Activity,
   BellDot,
+  CheckCircle2,
+  Clock3,
   Database,
   Eye,
   HardDrive,
   LayoutGrid,
   List,
   Loader2,
+  Monitor,
   Search,
-  X
+  Server,
+  Wifi,
+  WifiOff,
+  X,
+  XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddDiskModal } from '@/components/disks/add-disk-modal';
@@ -53,11 +54,34 @@ type DashboardDisk = {
   rootPath: string;
   status: DiskStatus;
   isEnabled: boolean;
+  sourceType: 'SERVER' | 'AGENT';
+  sourceLabel: string | null;
+  remoteDiskKey: string | null;
+  lastSeenAt: string | null;
   entriesCount: number;
   activitiesCount: number;
   lastScan: {
     scanType: string;
     status: string;
+  } | null;
+  latestAgentCommand: {
+    id: string;
+    commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS';
+    status: 'PENDING' | 'CLAIMED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
+    progressPercent: number;
+    phase: string | null;
+    currentPath: string | null;
+    errorMessage: string | null;
+    updatedAt: string;
+  } | null;
+  agentDevice: {
+    id: string;
+    machineId: string;
+    hostName: string;
+    userLabel: string | null;
+    status: 'ONLINE' | 'OFFLINE' | 'DISABLED';
+    lastHeartbeatAt: string | null;
+    lastSeenAt: string | null;
   } | null;
   displayLabel: string;
   displayTitle: string;
@@ -82,75 +106,31 @@ const statusLabels: Record<DiskStatus, string> = {
   DISCONNECTED: 'Non connecté'
 };
 
+const agentStatusLabels: Record<'ONLINE' | 'OFFLINE' | 'DISABLED', string> = {
+  ONLINE: 'En ligne',
+  OFFLINE: 'Hors ligne',
+  DISABLED: 'Désactivé'
+};
+
+const commandStatusLabels: Record<
+  'PENDING' | 'CLAIMED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED',
+  string
+> = {
+  PENDING: 'En attente',
+  CLAIMED: 'Récupérée',
+  RUNNING: 'En cours',
+  COMPLETED: 'Terminée',
+  FAILED: 'Erreur',
+  CANCELED: 'Annulée'
+};
+
 export function DashboardViewSwitcher({
   disks,
   stats
 }: DashboardViewSwitcherProps) {
-  const pathname = usePathname();
-  const progressTimersRef = useRef<number[]>([]);
-
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const router = useRouter();
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [searchTerm, setSearchTerm] = useState('');
-  const [routeLoadingDiskId, setRouteLoadingDiskId] = useState<string | null>(
-    null
-  );
-  const [routeProgress, setRouteProgress] = useState(0);
-  const [showRouteProgress, setShowRouteProgress] = useState(false);
-
-  function clearProgressTimers() {
-    progressTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    progressTimersRef.current = [];
-  }
-
-  function startRouteProgress(diskId: string) {
-    clearProgressTimers();
-
-    setRouteLoadingDiskId(diskId);
-    setShowRouteProgress(true);
-    setRouteProgress(12);
-
-    progressTimersRef.current.push(
-      window.setTimeout(() => setRouteProgress(38), 80)
-    );
-
-    progressTimersRef.current.push(
-      window.setTimeout(() => setRouteProgress(64), 180)
-    );
-
-    progressTimersRef.current.push(
-      window.setTimeout(() => setRouteProgress(82), 340)
-    );
-
-    progressTimersRef.current.push(
-      window.setTimeout(() => setRouteProgress(92), 700)
-    );
-  }
-
-  function finishRouteProgress() {
-    clearProgressTimers();
-
-    setRouteProgress(100);
-
-    progressTimersRef.current.push(
-      window.setTimeout(() => {
-        setShowRouteProgress(false);
-        setRouteProgress(0);
-        setRouteLoadingDiskId(null);
-      }, 220)
-    );
-  }
-
-  useEffect(() => {
-    return () => {
-      clearProgressTimers();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (showRouteProgress) {
-      finishRouteProgress();
-    }
-  }, [pathname]);
 
   const filteredDisks = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -164,7 +144,15 @@ export function DashboardViewSwitcher({
         disk.rootPath,
         disk.displayLabel,
         disk.displayTitle,
-        statusLabels[disk.status]
+        statusLabels[disk.status],
+        disk.sourceType,
+        disk.sourceLabel ?? '',
+        disk.agentDevice?.hostName ?? '',
+        disk.agentDevice?.machineId ?? '',
+        disk.agentDevice?.userLabel ?? '',
+        disk.agentDevice?.status ?? '',
+        disk.latestAgentCommand?.status ?? '',
+        disk.latestAgentCommand?.phase ?? ''
       ]
         .join(' ')
         .toLowerCase();
@@ -173,29 +161,35 @@ export function DashboardViewSwitcher({
     });
   }, [disks, searchTerm]);
 
-  const hasDisks = useMemo(() => disks.length > 0, [disks]);
-  const hasFilteredDisks = useMemo(
-    () => filteredDisks.length > 0,
-    [filteredDisks]
-  );
+  const hasActiveAgentCommand = useMemo(() => {
+    return disks.some(
+      (disk) =>
+        disk.sourceType === 'AGENT' &&
+        disk.latestAgentCommand &&
+        ['PENDING', 'CLAIMED', 'RUNNING'].includes(
+          disk.latestAgentCommand.status
+        )
+    );
+  }, [disks]);
+
+  useEffect(() => {
+    if (!hasActiveAgentCommand) return;
+
+    const timer = window.setInterval(() => {
+      router.refresh();
+    }, 4000);
+
+    return () => window.clearInterval(timer);
+  }, [hasActiveAgentCommand, router]);
 
   return (
     <div className="space-y-6">
-      {showRouteProgress ? (
-        <div className="pointer-events-none fixed inset-x-0 top-0 z-[120] h-1 bg-transparent">
-          <div
-            className="h-full bg-primary transition-all duration-300 ease-out"
-            style={{ width: `${routeProgress}%` }}
-          />
-        </div>
-      ) : null}
-
       <section className="grid gap-4 md:grid-cols-3">
         <StatCard
           icon={<HardDrive className="h-5 w-5" />}
           title="Disques gérés"
           value={String(stats.diskCount)}
-          description="Disques enregistrés dans l’application"
+          description="Disques serveur et utilisateur"
         />
         <StatCard
           icon={<Database className="h-5 w-5" />}
@@ -216,9 +210,9 @@ export function DashboardViewSwitcher({
           <CardHeader className="pb-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <CardTitle>Disques enregistrés</CardTitle>
+                <CardTitle>Disques disponibles</CardTitle>
                 <CardDescription>
-                  Alterne entre un affichage en cartes ou en tableau.
+                  Les disques du serveur et ceux remontés par les agents apparaissent ici.
                 </CardDescription>
               </div>
 
@@ -265,7 +259,7 @@ export function DashboardViewSwitcher({
                 <Input
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Rechercher un disque par code, nom, chemin ou statut..."
+                  placeholder="Rechercher par disque, source, machine, statut ou commande..."
                   className="h-10 rounded-xl pl-9 pr-10"
                 />
 
@@ -281,35 +275,27 @@ export function DashboardViewSwitcher({
                 ) : null}
               </div>
 
-              <p className="text-sm text-muted-foreground">
-                {searchTerm.trim()
-                  ? `${filteredDisks.length} disque(s) trouvé(s)`
-                  : `${disks.length} disque(s) affiché(s)`}
-              </p>
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                {hasActiveAgentCommand ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Actualisation automatique active
+                  </span>
+                ) : null}
+                <span>{filteredDisks.length} disque(s)</span>
+              </div>
             </div>
           </CardHeader>
 
           <CardContent>
-            {!hasDisks ? (
+            {filteredDisks.length === 0 ? (
               <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-                Aucun disque enregistré.
-              </div>
-            ) : !hasFilteredDisks ? (
-              <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-                Aucun disque ne correspond à ta recherche.
+                Aucun disque ne correspond à la recherche.
               </div>
             ) : viewMode === 'cards' ? (
-              <DiskCardsView
-                disks={filteredDisks}
-                routeLoadingDiskId={routeLoadingDiskId}
-                onViewStart={startRouteProgress}
-              />
+              <DiskCardsView disks={filteredDisks} />
             ) : (
-              <DiskTableView
-                disks={filteredDisks}
-                routeLoadingDiskId={routeLoadingDiskId}
-                onViewStart={startRouteProgress}
-              />
+              <DiskTableView disks={filteredDisks} />
             )}
           </CardContent>
         </Card>
@@ -318,15 +304,7 @@ export function DashboardViewSwitcher({
   );
 }
 
-function DiskCardsView({
-  disks,
-  routeLoadingDiskId,
-  onViewStart
-}: {
-  disks: DashboardDisk[];
-  routeLoadingDiskId: string | null;
-  onViewStart: (diskId: string) => void;
-}) {
+function DiskCardsView({ disks }: { disks: DashboardDisk[] }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
       {disks.map((disk) => (
@@ -373,6 +351,14 @@ function DiskCardsView({
               />
             </div>
 
+            <div className="grid gap-3">
+              <SourceInfoCard disk={disk} />
+              <AgentInfoCard disk={disk} />
+              {disk.sourceType === 'AGENT' ? (
+                <AgentCommandInfoCard disk={disk} />
+              ) : null}
+            </div>
+
             <div className="rounded-xl border bg-background px-3 py-3">
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <Activity className="h-3.5 w-3.5" />
@@ -400,12 +386,7 @@ function DiskCardsView({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <ViewDiskButton
-                diskId={disk.id}
-                isActive={routeLoadingDiskId === disk.id}
-                onNavigateStart={onViewStart}
-              />
-
+              <ViewDiskButton diskId={disk.id} />
               <OpenDiskButton
                 diskId={disk.id}
                 rootPath={disk.rootPath}
@@ -414,7 +395,10 @@ function DiskCardsView({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <ScanActionsModal diskId={disk.id} />
+              <ScanActionsModal
+                diskId={disk.id}
+                sourceType={disk.sourceType}
+              />
               <DiskRowActions
                 diskId={disk.id}
                 isEnabled={disk.isEnabled}
@@ -428,26 +412,20 @@ function DiskCardsView({
   );
 }
 
-function DiskTableView({
-  disks,
-  routeLoadingDiskId,
-  onViewStart
-}: {
-  disks: DashboardDisk[];
-  routeLoadingDiskId: string | null;
-  onViewStart: (diskId: string) => void;
-}) {
+function DiskTableView({ disks }: { disks: DashboardDisk[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Disque</TableHead>
-            <TableHead>Nom</TableHead>
-            <TableHead>Chemin racine</TableHead>
+            <TableHead>Source</TableHead>
+            <TableHead>Machine</TableHead>
+            <TableHead>État agent</TableHead>
+            <TableHead>Commande</TableHead>
+            <TableHead>Chemin</TableHead>
             <TableHead>Statut</TableHead>
             <TableHead>Entrées</TableHead>
-            <TableHead>Alertes</TableHead>
             <TableHead>Dernier scan</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -466,18 +444,35 @@ function DiskTableView({
                 </Link>
               </TableCell>
 
-              <TableCell>{disk.name}</TableCell>
-
-              <TableCell className="font-mono text-xs">
-                {disk.rootPath}
+              <TableCell>
+                <SourceBadge sourceType={disk.sourceType} />
               </TableCell>
+
+              <TableCell>{getMachineLabel(disk)}</TableCell>
+
+              <TableCell>
+                {disk.sourceType === 'AGENT' ? (
+                  <AgentStatusBadge status={disk.agentDevice?.status ?? 'OFFLINE'} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+
+              <TableCell>
+                {disk.sourceType === 'AGENT' ? (
+                  <AgentCommandInline disk={disk} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+
+              <TableCell className="font-mono text-xs">{disk.rootPath}</TableCell>
 
               <TableCell>
                 <StatusBadge status={disk.status} />
               </TableCell>
 
               <TableCell>{disk.entriesCount}</TableCell>
-              <TableCell>{disk.activitiesCount}</TableCell>
 
               <TableCell>
                 {disk.lastScan ? (
@@ -498,18 +493,16 @@ function DiskTableView({
 
               <TableCell>
                 <div className="flex justify-end gap-2">
-                  <ViewDiskButton
-                    diskId={disk.id}
-                    isActive={routeLoadingDiskId === disk.id}
-                    onNavigateStart={onViewStart}
-                  />
-
+                  <ViewDiskButton diskId={disk.id} />
                   <OpenDiskButton
                     diskId={disk.id}
                     rootPath={disk.rootPath}
                     status={disk.status}
                   />
-                  <ScanActionsModal diskId={disk.id} />
+                  <ScanActionsModal
+                    diskId={disk.id}
+                    sourceType={disk.sourceType}
+                  />
                   <DiskRowActions
                     diskId={disk.id}
                     isEnabled={disk.isEnabled}
@@ -525,21 +518,11 @@ function DiskTableView({
   );
 }
 
-function ViewDiskButton({
-  diskId,
-  isActive,
-  onNavigateStart
-}: {
-  diskId: string;
-  isActive: boolean;
-  onNavigateStart: (diskId: string) => void;
-}) {
+function ViewDiskButton({ diskId }: { diskId: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   function handleView() {
-    onNavigateStart(diskId);
-
     toast.info('Chargement du disque', {
       description: 'Veuillez patienter un instant...'
     });
@@ -549,17 +532,15 @@ function ViewDiskButton({
     });
   }
 
-  const loading = isPending || isActive;
-
   return (
     <Button
       type="button"
       variant="outline"
       className="h-9 rounded-xl"
       onClick={handleView}
-      disabled={loading}
+      disabled={isPending}
     >
-      {loading ? (
+      {isPending ? (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
           Chargement...
@@ -571,6 +552,205 @@ function ViewDiskButton({
         </>
       )}
     </Button>
+  );
+}
+
+function SourceInfoCard({ disk }: { disk: DashboardDisk }) {
+  return (
+    <div className="rounded-xl border bg-muted/10 px-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Source
+        </span>
+        <SourceBadge sourceType={disk.sourceType} />
+      </div>
+
+      <p className="mt-2 text-sm font-medium">
+        {disk.sourceType === 'SERVER'
+          ? 'Disque scanné par le serveur'
+          : 'Disque remonté par un agent utilisateur'}
+      </p>
+
+      {disk.sourceLabel ? (
+        <p className="mt-1 text-xs text-muted-foreground">{disk.sourceLabel}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentInfoCard({ disk }: { disk: DashboardDisk }) {
+  if (disk.sourceType === 'SERVER') {
+    return (
+      <div className="rounded-xl border bg-muted/10 px-3 py-3">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Server className="h-3.5 w-3.5" />
+          Machine
+        </div>
+        <p className="mt-2 text-sm font-medium">Serveur local</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Scan exécuté directement côté serveur
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border bg-muted/10 px-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Monitor className="h-3.5 w-3.5" />
+          Machine
+        </div>
+        <AgentStatusBadge status={disk.agentDevice?.status ?? 'OFFLINE'} />
+      </div>
+
+      <p className="mt-2 text-sm font-medium">{getMachineLabel(disk)}</p>
+
+      <p className="mt-1 text-xs text-muted-foreground">
+        {disk.agentDevice?.userLabel
+          ? `Utilisateur : ${disk.agentDevice.userLabel}`
+          : disk.lastSeenAt
+            ? `Dernière activité : ${new Date(disk.lastSeenAt).toLocaleString('fr-FR')}`
+            : 'Agent sans activité récente'}
+      </p>
+    </div>
+  );
+}
+
+function AgentCommandInfoCard({ disk }: { disk: DashboardDisk }) {
+  if (!disk.latestAgentCommand) {
+    return (
+      <div className="rounded-xl border bg-muted/10 px-3 py-3">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Clock3 className="h-3.5 w-3.5" />
+          Commande agent
+        </div>
+        <p className="mt-2 text-sm font-medium">Aucune commande récente</p>
+      </div>
+    );
+  }
+
+  const command = disk.latestAgentCommand;
+
+  return (
+    <div className="rounded-xl border bg-muted/10 px-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Clock3 className="h-3.5 w-3.5" />
+          Commande agent
+        </div>
+        <CommandStatusBadge status={command.status} />
+      </div>
+
+      <p className="mt-2 text-sm font-medium">
+        {getCommandTypeLabel(command.commandType)}
+      </p>
+
+      <p className="mt-1 text-xs text-muted-foreground">
+        Phase : {command.phase ?? '—'}
+      </p>
+
+      <p className="mt-1 text-xs text-muted-foreground">
+        Progression : {command.progressPercent ?? 0}%
+      </p>
+
+      {command.currentPath ? (
+        <p className="mt-1 break-all text-xs text-muted-foreground">
+          {command.currentPath}
+        </p>
+      ) : null}
+
+      {command.errorMessage ? (
+        <p className="mt-2 text-xs text-destructive">{command.errorMessage}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentCommandInline({ disk }: { disk: DashboardDisk }) {
+  const command = disk.latestAgentCommand;
+
+  if (!command) {
+    return <span className="text-xs text-muted-foreground">Aucune</span>;
+  }
+
+  return (
+    <div className="space-y-1">
+      <CommandStatusBadge status={command.status} />
+      <p className="text-xs text-muted-foreground">
+        {command.phase ?? getCommandTypeLabel(command.commandType)}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {command.progressPercent ?? 0}%
+      </p>
+    </div>
+  );
+}
+
+function SourceBadge({
+  sourceType
+}: {
+  sourceType: 'SERVER' | 'AGENT';
+}) {
+  return (
+    <Badge variant={sourceType === 'SERVER' ? 'secondary' : 'outline'}>
+      {sourceType === 'SERVER' ? 'Serveur' : 'Cet ordinateur'}
+    </Badge>
+  );
+}
+
+function AgentStatusBadge({
+  status
+}: {
+  status: 'ONLINE' | 'OFFLINE' | 'DISABLED';
+}) {
+  return (
+    <Badge
+      variant={
+        status === 'ONLINE'
+          ? 'default'
+          : status === 'OFFLINE'
+            ? 'secondary'
+            : 'destructive'
+      }
+    >
+      {status === 'ONLINE' ? (
+        <Wifi className="h-3.5 w-3.5" />
+      ) : (
+        <WifiOff className="h-3.5 w-3.5" />
+      )}
+      {agentStatusLabels[status]}
+    </Badge>
+  );
+}
+
+function CommandStatusBadge({
+  status
+}: {
+  status: 'PENDING' | 'CLAIMED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
+}) {
+  const variant =
+    status === 'COMPLETED'
+      ? 'default'
+      : status === 'FAILED'
+        ? 'destructive'
+        : status === 'CANCELED'
+          ? 'secondary'
+          : 'outline';
+
+  return (
+    <Badge variant={variant}>
+      {status === 'PENDING' || status === 'CLAIMED' ? (
+        <Clock3 className="h-3.5 w-3.5" />
+      ) : status === 'RUNNING' ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : status === 'COMPLETED' ? (
+        <CheckCircle2 className="h-3.5 w-3.5" />
+      ) : (
+        <XCircle className="h-3.5 w-3.5" />
+      )}
+      {commandStatusLabels[status]}
+    </Badge>
   );
 }
 
@@ -589,6 +769,27 @@ function StatusBadge({ status }: { status: DiskStatus }) {
       {statusLabels[status]}
     </Badge>
   );
+}
+
+function getMachineLabel(disk: DashboardDisk) {
+  if (disk.sourceType === 'SERVER') {
+    return 'Serveur';
+  }
+
+  return (
+    disk.agentDevice?.hostName ||
+    disk.sourceLabel ||
+    disk.agentDevice?.machineId ||
+    'Machine inconnue'
+  );
+}
+
+function getCommandTypeLabel(
+  commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS'
+) {
+  if (commandType === 'FULL_SCAN') return 'Scan complet';
+  if (commandType === 'DIFFERENTIAL_SCAN') return 'Scan différentiel';
+  return 'Actualisation des disques';
 }
 
 function StatCard({

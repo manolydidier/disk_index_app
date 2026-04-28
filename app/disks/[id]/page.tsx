@@ -1,17 +1,20 @@
 import { notFound } from 'next/navigation';
-import { format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
-  HardDrive,
-  Calendar,
-  Files,
-  ChevronRight,
-  FolderTree,
-  BellDot,
-  Info,
   Activity,
-  ChevronDown
+  BellDot,
+  ChevronDown,
+  HardDrive,
+  Info,
+  Laptop,
+  Monitor,
+  ScanSearch,
+  Server,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
+import { DiskStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { buildDiskTreeResponse } from '@/lib/tree';
 import { Badge } from '@/components/ui/badge';
@@ -26,17 +29,17 @@ import { DiskTreeView } from '@/components/disks/disk-tree-view';
 import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
 import { ScanActionsModal } from '@/components/disks/scan-actions-modal';
-import { DiskDetailModals } from '@/components/disks/disk-detail-modals';
 
-const statusLabels: Record<string, string> = {
+const statusLabels: Record<DiskStatus, string> = {
   ACTIVE: 'Actif',
   INACTIVE: 'Inactif',
   DISCONNECTED: 'Non connecté'
 };
 
-const scanTypeLabels: Record<string, string> = {
-  DIFFERENTIAL: 'Différentiel',
-  FULL: 'Complet'
+const agentStatusLabels: Record<'ONLINE' | 'OFFLINE' | 'DISABLED', string> = {
+  ONLINE: 'En ligne',
+  OFFLINE: 'Hors ligne',
+  DISABLED: 'Désactivé'
 };
 
 export default async function DiskDetailPage({
@@ -60,6 +63,19 @@ export default async function DiskDetailPage({
       activities: {
         orderBy: { createdAt: 'desc' },
         take: 20
+      },
+      agentDevice: {
+        select: {
+          id: true,
+          machineId: true,
+          hostName: true,
+          userLabel: true,
+          status: true,
+          osName: true,
+          appVersion: true,
+          lastHeartbeatAt: true,
+          lastSeenAt: true
+        }
       }
     }
   });
@@ -76,36 +92,32 @@ export default async function DiskDetailPage({
   });
 
   const latestScan = disk.scanJobs[0] ?? null;
+  const machineLabel =
+    disk.sourceType === 'SERVER'
+      ? 'Serveur'
+      : disk.agentDevice?.hostName ||
+        disk.sourceLabel ||
+        disk.agentDevice?.machineId ||
+        'Machine inconnue';
 
-  const scanItems = disk.scanJobs.map((job) => ({
-    id: job.id,
-    scanType: job.scanType,
-    status: job.status,
-    startedAt: job.startedAt ? job.startedAt.toISOString() : null,
-    currentPath: job.currentPath ?? null,
-    phase: job.phase ?? null,
-    summaryText: job.summary
-      ? JSON.stringify(job.summary)
-      : job.errorMessage || '—'
-  }));
-
-  const activityItems = disk.activities.map((activity) => ({
-    id: activity.id,
-    activityType: activity.activityType,
-    path: activity.path,
-    createdAt: activity.createdAt.toISOString()
-  }));
+  const lastHeartbeatLabel =
+    disk.agentDevice?.lastHeartbeatAt
+      ? formatDistanceToNow(new Date(disk.agentDevice.lastHeartbeatAt), {
+          addSuffix: true,
+          locale: fr
+        })
+      : 'Jamais';
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+    <div className="space-y-6">
       <Card className="overflow-hidden border-0 shadow-sm">
         <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
 
-        <CardHeader className="border-b bg-muted/20 px-4 py-5 sm:px-6">
+        <CardHeader className="border-b bg-muted/20">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 space-y-4">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-xl bg-primary/10 p-2.5 text-primary">
+                <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
                   <HardDrive className="h-5 w-5" />
                 </div>
 
@@ -114,9 +126,8 @@ export default async function DiskDetailPage({
                     <CardTitle className="text-xl sm:text-2xl">
                       {disk.code}
                     </CardTitle>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
                     <CardTitle className="text-xl font-normal sm:text-2xl">
-                      {disk.name}
+                      — {disk.name}
                     </CardTitle>
                   </div>
 
@@ -127,22 +138,16 @@ export default async function DiskDetailPage({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={
-                    disk.status === 'ACTIVE'
-                      ? 'default'
-                      : disk.status === 'DISCONNECTED'
-                        ? 'destructive'
-                        : 'secondary'
-                  }
-                >
-                  {statusLabels[disk.status] ?? disk.status}
-                </Badge>
-
+                <StatusBadge status={disk.status} />
+                <SourceBadge sourceType={disk.sourceType} />
+                {disk.sourceType === 'AGENT' ? (
+                  <AgentStatusBadge
+                    status={disk.agentDevice?.status ?? 'OFFLINE'}
+                  />
+                ) : null}
                 <Badge variant="outline">
                   {disk.entries.length.toLocaleString('fr-FR')} entrées
                 </Badge>
-
                 <Badge variant="outline">
                   {disk.activities.length} activités récentes
                 </Badge>
@@ -156,7 +161,10 @@ export default async function DiskDetailPage({
                 status={disk.status}
               />
 
-              <ScanActionsModal diskId={disk.id} />
+              <ScanActionsModal
+                diskId={disk.id}
+                sourceType={disk.sourceType}
+              />
 
               <DiskRowActions
                 diskId={disk.id}
@@ -169,33 +177,45 @@ export default async function DiskDetailPage({
       </Card>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricHorizontal
+        <MetricCard
           icon={<HardDrive className="h-4 w-4" />}
-          label="Statut"
-          value={statusLabels[disk.status] ?? disk.status}
+          label="Statut disque"
+          value={statusLabels[disk.status]}
+          subvalue={disk.rootPath}
         />
-        <MetricHorizontal
-          icon={<Calendar className="h-4 w-4" />}
+        <MetricCard
+          icon={
+            disk.sourceType === 'SERVER' ? (
+              <Server className="h-4 w-4" />
+            ) : (
+              <Laptop className="h-4 w-4" />
+            )
+          }
+          label="Source"
+          value={disk.sourceType === 'SERVER' ? 'Serveur' : 'Cet ordinateur'}
+          subvalue={disk.sourceLabel || undefined}
+        />
+        <MetricCard
+          icon={<Monitor className="h-4 w-4" />}
+          label="Machine"
+          value={machineLabel}
+          subvalue={
+            disk.sourceType === 'AGENT'
+              ? disk.agentDevice?.userLabel || disk.agentDevice?.machineId || undefined
+              : 'Exécution locale'
+          }
+        />
+        <MetricCard
+          icon={<ScanSearch className="h-4 w-4" />}
           label="Dernier scan"
           value={
-            disk.lastScanAt
-              ? format(disk.lastScanAt, 'dd MMM yyyy HH:mm', { locale: fr })
+            latestScan
+              ? latestScan.scanType === 'FULL'
+                ? 'Complet'
+                : 'Différentiel'
               : 'Jamais'
           }
-        />
-        <MetricHorizontal
-          icon={<Files className="h-4 w-4" />}
-          label="Entrées indexées"
-          value={disk.entries.length.toLocaleString('fr-FR')}
-        />
-        <MetricHorizontal
-          icon={<BellDot className="h-4 w-4" />}
-          label="Repères rapides"
-          value={
-            latestScan
-              ? `${scanTypeLabels[latestScan.scanType] ?? latestScan.scanType} • ${disk.name}`
-              : `${statusLabels[disk.status] ?? disk.status} • ${disk.name}`
-          }
+          subvalue={latestScan?.status || 'Aucun scan enregistré'}
         />
       </section>
 
@@ -207,60 +227,108 @@ export default async function DiskDetailPage({
             description="Informations générales du disque."
             defaultOpen
           >
-            <SidebarInfoBlock label="Code disque" value={disk.code} />
-            <SidebarInfoBlock label="Nom" value={disk.name} />
-            <SidebarInfoBlock label="Chemin racine" value={disk.rootPath} mono />
-            <SidebarInfoBlock
-              label="Dernier scan lancé"
-              value={
-                latestScan
-                  ? `${scanTypeLabels[latestScan.scanType] ?? latestScan.scanType} • ${latestScan.status}`
-                  : 'Aucun scan'
-              }
+            <InfoBlock label="Code disque" value={disk.code} />
+            <InfoBlock label="Nom" value={disk.name} />
+            <InfoBlock label="Chemin racine" value={disk.rootPath} mono />
+            <InfoBlock
+              label="Source"
+              value={disk.sourceType === 'SERVER' ? 'Serveur' : 'Agent utilisateur'}
             />
-            <SidebarInfoBlock
-              label="Description"
-              value={disk.description?.trim() || 'Aucune description'}
+            <InfoBlock
+              label="Machine"
+              value={machineLabel}
             />
           </AccordionSection>
 
           <AccordionSection
-            icon={<Activity className="h-4 w-4" />}
-            title="Actions et journaux"
-            description="Ouvre les détails longs dans des fenêtres modales."
+            icon={disk.sourceType === 'SERVER' ? <Server className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
+            title="Connexion agent"
+            description="État de connexion de la machine source."
             defaultOpen
           >
-            <div className="grid gap-2">
-              <DiskDetailModals scans={scanItems} activities={activityItems} />
-            </div>
+            {disk.sourceType === 'SERVER' ? (
+              <div className="rounded-xl border bg-muted/10 px-3 py-3 text-sm">
+                Ce disque est géré directement par le serveur.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <InfoBlock
+                  label="État agent"
+                  value={agentStatusLabels[disk.agentDevice?.status ?? 'OFFLINE']}
+                />
+                <InfoBlock
+                  label="Dernier heartbeat"
+                  value={lastHeartbeatLabel}
+                />
+                <InfoBlock
+                  label="Utilisateur"
+                  value={disk.agentDevice?.userLabel || 'Non renseigné'}
+                />
+                <InfoBlock
+                  label="Machine ID"
+                  value={disk.agentDevice?.machineId || 'Inconnu'}
+                  mono
+                />
+                <InfoBlock
+                  label="Système"
+                  value={disk.agentDevice?.osName || 'Inconnu'}
+                />
+                <InfoBlock
+                  label="Version agent"
+                  value={disk.agentDevice?.appVersion || 'Inconnue'}
+                />
+              </div>
+            )}
+          </AccordionSection>
 
-            <div className="grid gap-2 pt-1">
-              <SidebarMiniStat
-                label="Historique disponible"
-                value={`${scanItems.length} scan${scanItems.length > 1 ? 's' : ''}`}
-              />
-              <SidebarMiniStat
-                label="Activités consultables"
-                value={`${activityItems.length} événement${activityItems.length > 1 ? 's' : ''}`}
-              />
-            </div>
+          <AccordionSection
+            icon={<Activity className="h-4 w-4" />}
+            title="Résumé"
+            description="Dernières informations utiles."
+            defaultOpen
+          >
+            <InfoBlock
+              label="Dernière activité disque"
+              value={
+                disk.lastActivityAt
+                  ? formatDistanceToNow(new Date(disk.lastActivityAt), {
+                      addSuffix: true,
+                      locale: fr
+                    })
+                  : 'Aucune activité'
+              }
+            />
+            <InfoBlock
+              label="Dernière détection"
+              value={
+                disk.lastSeenAt
+                  ? formatDistanceToNow(new Date(disk.lastSeenAt), {
+                      addSuffix: true,
+                      locale: fr
+                    })
+                  : 'Jamais'
+              }
+            />
+            <InfoBlock
+              label="Entrées indexées"
+              value={disk.entries.length.toLocaleString('fr-FR')}
+            />
+            <InfoBlock
+              label="Alertes récentes"
+              value={String(disk.activities.length)}
+            />
           </AccordionSection>
         </aside>
 
         <Card className="overflow-hidden border-0 shadow-sm">
-          <CardHeader className="border-b bg-muted/20 px-4 py-4 sm:px-6">
-            <div className="flex items-center gap-2">
-              <FolderTree className="h-4 w-4 text-muted-foreground" />
-              <div>
-                <CardTitle className="text-base">Contenu du disque</CardTitle>
-                <CardDescription className="text-xs">
-                  Arborescence indexée du disque.
-                </CardDescription>
-              </div>
-            </div>
+          <CardHeader className="border-b bg-muted/20">
+            <CardTitle className="text-base">Contenu du disque</CardTitle>
+            <CardDescription>
+              Arborescence indexée et contenu actuellement connu.
+            </CardDescription>
           </CardHeader>
 
-          <CardContent className="px-4 py-4 sm:px-6">
+          <CardContent className="pt-6">
             <DiskTreeView tree={tree.tree} />
           </CardContent>
         </Card>
@@ -269,18 +337,20 @@ export default async function DiskDetailPage({
   );
 }
 
-function MetricHorizontal({
+function MetricCard({
   icon,
   label,
-  value
+  value,
+  subvalue
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  subvalue?: string;
 }) {
   return (
     <Card className="border-0 shadow-sm">
-      <CardContent className="flex items-center gap-3 px-4 py-4">
+      <CardContent className="flex items-start gap-3 px-4 py-4">
         <div className="rounded-xl bg-primary/10 p-2 text-primary">
           {icon}
         </div>
@@ -289,6 +359,11 @@ function MetricHorizontal({
             {label}
           </p>
           <p className="truncate text-sm font-semibold sm:text-base">{value}</p>
+          {subvalue ? (
+            <p className="mt-1 break-all text-xs text-muted-foreground">
+              {subvalue}
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -321,7 +396,6 @@ function AccordionSection({
             <p className="text-xs text-muted-foreground">{description}</p>
           </div>
         </div>
-
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       </summary>
 
@@ -330,7 +404,7 @@ function AccordionSection({
   );
 }
 
-function SidebarInfoBlock({
+function InfoBlock({
   label,
   value,
   mono = false
@@ -351,19 +425,55 @@ function SidebarInfoBlock({
   );
 }
 
-function SidebarMiniStat({
-  label,
-  value
+function SourceBadge({
+  sourceType
 }: {
-  label: string;
-  value: string;
+  sourceType: 'SERVER' | 'AGENT';
 }) {
   return (
-    <div className="rounded-xl border bg-muted/10 px-3 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-medium">{value}</p>
-    </div>
+    <Badge variant={sourceType === 'SERVER' ? 'secondary' : 'outline'}>
+      {sourceType === 'SERVER' ? 'Serveur' : 'Cet ordinateur'}
+    </Badge>
+  );
+}
+
+function AgentStatusBadge({
+  status
+}: {
+  status: 'ONLINE' | 'OFFLINE' | 'DISABLED';
+}) {
+  return (
+    <Badge
+      variant={
+        status === 'ONLINE'
+          ? 'default'
+          : status === 'OFFLINE'
+            ? 'secondary'
+            : 'destructive'
+      }
+    >
+      {status === 'ONLINE' ? (
+        <Wifi className="h-3.5 w-3.5" />
+      ) : (
+        <WifiOff className="h-3.5 w-3.5" />
+      )}
+      {agentStatusLabels[status]}
+    </Badge>
+  );
+}
+
+function StatusBadge({ status }: { status: DiskStatus }) {
+  return (
+    <Badge
+      variant={
+        status === 'ACTIVE'
+          ? 'default'
+          : status === 'DISCONNECTED'
+            ? 'destructive'
+            : 'secondary'
+      }
+    >
+      {statusLabels[status]}
+    </Badge>
   );
 }

@@ -1,7 +1,9 @@
-import { AutomationSettingsClient } from '@/components/settings/automation-settings-client';
+// app/settings/automation/page.tsx
 
-export const dynamic = 'force-dynamic';
+import { SettingsPageClient } from "@/components/settings/settings-page-client";
+
+
 
 export default function AutomationSettingsPage() {
-  return <AutomationSettingsClient />;
+  return <SettingsPageClient />;
 }

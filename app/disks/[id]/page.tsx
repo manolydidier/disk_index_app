@@ -1,11 +1,15 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
   Activity,
+  ArrowLeft,
   BellDot,
   ChevronDown,
+  Download,
   HardDrive,
+  History,
   Info,
   Laptop,
   Monitor,
@@ -30,6 +34,10 @@ import { DiskTreeView } from '@/components/disks/disk-tree-view';
 import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
 import { ScanActionsModal } from '@/components/disks/scan-actions-modal';
+
+// Force per-request rendering — this page's data (disk status, scan
+// history, activity log) must never be served from a build-time snapshot.
+export const dynamic = 'force-dynamic';
 
 const statusLabels: Record<DiskStatus, string> = {
   ACTIVE: 'Actif',
@@ -114,6 +122,14 @@ export default async function DiskDetailPage({
 
   return (
     <div className="space-y-6">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Retour au tableau de bord
+      </Link>
+
       <Card className="overflow-hidden border-0 shadow-sm">
         <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
 
@@ -166,10 +182,15 @@ export default async function DiskDetailPage({
               <ScanActionsModal
                 diskId={disk.id}
                 sourceType={disk.sourceType}
+                agentStatus={agentDeviceStatus}
               />
 
               <DiskRowActions
                 diskId={disk.id}
+                code={disk.code}
+                name={disk.name}
+                rootPath={disk.rootPath}
+                description={disk.description}
                 isEnabled={disk.isEnabled}
                 status={disk.status}
               />
@@ -323,15 +344,137 @@ export default async function DiskDetailPage({
         </aside>
 
         <Card className="overflow-hidden border-0 shadow-sm">
-          <CardHeader className="border-b bg-muted/20">
-            <CardTitle className="text-base">Contenu du disque</CardTitle>
-            <CardDescription>
-              Arborescence indexée et contenu actuellement connu.
-            </CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-muted/20">
+            <div>
+              <CardTitle className="text-base">Contenu du disque</CardTitle>
+              <CardDescription>
+                Arborescence indexée et contenu actuellement connu.
+              </CardDescription>
+            </div>
+
+            <a
+              href={`/api/disks/${disk.id}/export?type=entries`}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </a>
           </CardHeader>
 
           <CardContent className="pt-6">
             <DiskTreeView tree={tree.tree} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card className="overflow-hidden border-0 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-muted/20">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="h-4 w-4" />
+                Historique des scans
+              </CardTitle>
+              <CardDescription>Les 10 derniers scans de ce disque.</CardDescription>
+            </div>
+
+            <a
+              href={`/api/disks/${disk.id}/export?type=scans`}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </a>
+          </CardHeader>
+
+          <CardContent className="pt-6">
+            {disk.scanJobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aucun scan enregistré pour l’instant.</p>
+            ) : (
+              <div className="space-y-2">
+                {disk.scanJobs.map((job) => {
+                  const summary = (job.summary ?? {}) as {
+                    added?: number;
+                    modified?: number;
+                    renamed?: number;
+                    deleted?: number;
+                    totalIndexed?: number;
+                  };
+
+                  return (
+                    <div
+                      key={job.id}
+                      className="rounded-xl border bg-muted/10 px-3 py-3 text-sm"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium">
+                          {job.scanType === 'FULL' ? 'Scan complet' : 'Scan différentiel'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {job.createdAt.toLocaleString('fr-FR')}
+                          </span>
+                          <ScanJobStatusBadge status={job.status} />
+                        </div>
+                      </div>
+
+                      {job.status === 'COMPLETED' ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          +{summary.added ?? 0} ajoutés · {summary.modified ?? 0} modifiés ·{' '}
+                          {summary.renamed ?? 0} renommés · -{summary.deleted ?? 0} supprimés ·{' '}
+                          {summary.totalIndexed ?? 0} au total
+                        </p>
+                      ) : job.errorMessage ? (
+                        <p className="mt-1 text-xs text-destructive">{job.errorMessage}</p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden border-0 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-muted/20">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className="h-4 w-4" />
+                Journal d’activité
+              </CardTitle>
+              <CardDescription>Les 20 derniers changements détectés.</CardDescription>
+            </div>
+
+            <a
+              href={`/api/disks/${disk.id}/export?type=activities`}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </a>
+          </CardHeader>
+
+          <CardContent className="pt-6">
+            {disk.activities.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aucune activité enregistrée pour l’instant.</p>
+            ) : (
+              <div className="max-h-[420px] space-y-2 overflow-y-auto">
+                {disk.activities.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-start justify-between gap-3 rounded-xl border bg-muted/10 px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-all font-mono text-xs">{activity.path}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {activity.createdAt.toLocaleString('fr-FR')}
+                      </p>
+                    </div>
+                    <ActivityTypeBadge type={activity.activityType} />
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -460,6 +603,62 @@ function AgentStatusBadge({
         <WifiOff className="h-3.5 w-3.5" />
       )}
       {agentStatusLabels[status]}
+    </Badge>
+  );
+}
+
+function ScanJobStatusBadge({
+  status
+}: {
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+}) {
+  const labels: Record<typeof status, string> = {
+    PENDING: 'En attente',
+    RUNNING: 'En cours',
+    COMPLETED: 'Terminé',
+    FAILED: 'Échoué'
+  };
+
+  return (
+    <Badge
+      variant={
+        status === 'COMPLETED'
+          ? 'default'
+          : status === 'FAILED'
+            ? 'destructive'
+            : 'secondary'
+      }
+    >
+      {labels[status]}
+    </Badge>
+  );
+}
+
+function ActivityTypeBadge({
+  type
+}: {
+  type: 'ADDED' | 'MODIFIED' | 'RENAMED' | 'DELETED' | 'DISK_STATUS';
+}) {
+  const labels: Record<typeof type, string> = {
+    ADDED: 'Ajouté',
+    MODIFIED: 'Modifié',
+    RENAMED: 'Renommé',
+    DELETED: 'Supprimé',
+    DISK_STATUS: 'Statut disque'
+  };
+
+  return (
+    <Badge
+      variant={
+        type === 'DELETED'
+          ? 'destructive'
+          : type === 'ADDED'
+            ? 'default'
+            : 'secondary'
+      }
+      className="shrink-0"
+    >
+      {labels[type]}
     </Badge>
   );
 }

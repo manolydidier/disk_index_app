@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { LoginForm } from '@/components/auth/login-form';
 
 export default function LoginPage() {
@@ -9,7 +10,9 @@ export default function LoginPage() {
           Connecte-toi pour accéder à Disk Indexer.
         </p>
         <div className="mt-6">
-          <LoginForm />
+          <Suspense fallback={null}>
+            <LoginForm />
+          </Suspense>
         </div>
       </div>
     </main>

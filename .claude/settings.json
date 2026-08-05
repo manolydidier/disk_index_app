@@ -49,7 +49,18 @@
       "Bash(powershell -Command 'Get-ChildItem \"$env:ProgramData\\\\Microsoft\\\\Windows\\\\Start Menu\\\\Programs\\\\StartUp\" -ErrorAction SilentlyContinue')",
       "Bash(powershell -Command \"Get-ItemProperty 'HKCU:\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run' -ErrorAction SilentlyContinue\")",
       "Bash(powershell -Command \"Get-ItemProperty 'HKLM:\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run' -ErrorAction SilentlyContinue\")",
-      "Bash(node scripts/_check-agent-status.mjs)"
+      "Bash(node scripts/_check-agent-status.mjs)",
+      "Bash(node scripts/_check-disk.mjs)",
+      "Bash(rm scripts/_check-disk.mjs)",
+      "Bash(curl -s -i -X PATCH http://localhost:3000/api/disks/cmoh5wteq0006i0o5ng17tj1e -H 'Content-Type: application/json' -d '{\"isEnabled\":false,\"status\":\"INACTIVE\"}')",
+      "Bash(curl -s -i -X PATCH http://localhost:3000/api/disks/cmoh5wteq0006i0o5ng17tj1e -H 'Content-Type: application/json' -d '{\"isEnabled\":true,\"status\":\"ACTIVE\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/disks -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/disks -H \"Content-Type: application/json\" -d '{\"name\":\"Test Disk\",\"rootPath\":\"Z:\\\\\\\\\",\"code\":\"badcode\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/disks -H \"Content-Type: application/json\" -d '{\"name\":\"Test Disk\",\"rootPath\":\"Z:\\\\\\\\\",\"code\":\"DB0001\"}')",
+      "Bash(node -e ' *)",
+      "Bash(powershell -NoProfile -Command \"\\(Get-NetTCPConnection -LocalPort 3000 -State Listen\\).OwningProcess\")",
+      "Bash(powershell -NoProfile -Command \"taskkill /PID 23400 /T /F\")",
+      "Bash(nohup npm run start)"
     ],
     "additionalDirectories": [
       "\\tmp"

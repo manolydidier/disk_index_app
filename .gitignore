@@ -20,6 +20,9 @@
 # production
 /build
 
+# auto-start launcher logs
+/logs
+
 # misc
 .DS_Store
 *.pem

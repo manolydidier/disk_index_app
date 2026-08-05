@@ -11,6 +11,7 @@ import { ActivityMonitor } from '@/components/providers/activity-monitor';
 import { AutomationMonitor } from '@/components/providers/automation-monitor';
 import { AuthProvider } from '@/components/providers/auth-provider';
 import { AuthActions } from '@/components/auth/auth-actions';
+import { NavLink, MobileIconLink } from '@/components/layout/nav-link';
 
 export const metadata: Metadata = {
   title: 'Disk Indexer',
@@ -113,43 +114,3 @@ export default function RootLayout({
   );
 }
 
-function NavLink({
-  href,
-  icon,
-  children
-}: {
-  href: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-2 rounded-full border border-transparent px-3 py-2 text-sm text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground"
-    >
-      {icon}
-      <span>{children}</span>
-    </Link>
-  );
-}
-
-function MobileIconLink({
-  href,
-  label,
-  children
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-label={label}
-      title={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
-    >
-      {children}
-    </Link>
-  );
-}

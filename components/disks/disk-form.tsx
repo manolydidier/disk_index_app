@@ -12,6 +12,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { validateDiskFields, type DiskFieldErrors } from '@/lib/disk-validation';
 
 type DiskStatus = 'ACTIVE' | 'INACTIVE' | 'DISCONNECTED';
 
@@ -29,11 +30,14 @@ type CreateDiskPayload = {
   status?: DiskStatus;
 };
 
+type FieldErrors = DiskFieldErrors;
+
 export function DiskForm() {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [connectedDisks, setConnectedDisks] = useState<ConnectedDiskOption[]>([]);
   const [selectedRootPath, setSelectedRootPath] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const [form, setForm] = useState<CreateDiskPayload>({
     code: '',
@@ -42,6 +46,14 @@ export function DiskForm() {
     description: '',
     status: 'ACTIVE'
   });
+
+  function fieldError(key: keyof FieldErrors) {
+    return fieldErrors[key]?.[0];
+  }
+
+  function validate(): FieldErrors {
+    return validateDiskFields(form);
+  }
 
   async function loadConnectedDisks() {
     setLoadingDevices(true);
@@ -102,6 +114,14 @@ export function DiskForm() {
       ...current,
       [key]: value
     }));
+
+    if (key in fieldErrors) {
+      setFieldErrors((current) => {
+        const next = { ...current };
+        delete next[key as keyof FieldErrors];
+        return next;
+      });
+    }
   }
 
   function handleSelectDisk(rootPath: string) {
@@ -122,21 +142,17 @@ export function DiskForm() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form.name.trim()) {
-      toast.error('Nom requis', {
-        description: 'Veuillez renseigner un nom pour ce disque.'
+    const validationErrors = validate();
+
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      toast.error('Formulaire incomplet', {
+        description: 'Corrige les champs indiqués en rouge.'
       });
       return;
     }
 
-    if (!form.rootPath.trim()) {
-      toast.error('Chemin requis', {
-        description:
-          'Sélectionne un disque connecté ou saisis un chemin racine.'
-      });
-      return;
-    }
-
+    setFieldErrors({});
     setSubmitting(true);
 
     try {
@@ -155,14 +171,23 @@ export function DiskForm() {
       });
 
       const payload = (await response.json().catch(() => ({}))) as {
-        error?: string | { fieldErrors?: Record<string, string[]> };
+        error?:
+          | string
+          | { fieldErrors?: Record<string, string[]>; formErrors?: string[] };
       };
 
       if (!response.ok) {
-        const errorMessage =
-          typeof payload.error === 'string'
-            ? payload.error
-            : 'Impossible de créer le disque.';
+        let errorMessage = 'Impossible de créer le disque.';
+
+        if (typeof payload.error === 'string') {
+          errorMessage = payload.error;
+        } else if (payload.error?.fieldErrors) {
+          setFieldErrors(payload.error.fieldErrors as FieldErrors);
+          errorMessage =
+            Object.values(payload.error.fieldErrors).flat()[0] ||
+            payload.error.formErrors?.[0] ||
+            errorMessage;
+        }
 
         throw new Error(errorMessage);
       }
@@ -259,23 +284,46 @@ export function DiskForm() {
               value={form.code ?? ''}
               onChange={(e) => updateField('code', e.target.value)}
               placeholder="Exemple : DB0004"
+              aria-invalid={Boolean(fieldError('code'))}
+              className={
+                fieldError('code')
+                  ? 'border-destructive focus-visible:ring-destructive'
+                  : undefined
+              }
             />
-            <p className="text-xs text-muted-foreground">
-              Laisse vide pour générer automatiquement le code.
-            </p>
+            {fieldError('code') ? (
+              <p className="text-xs text-destructive">{fieldError('code')}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Laisse vide pour générer automatiquement le code.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Nom</label>
+            <label className="text-sm font-medium">
+              Nom <span className="text-destructive">*</span>
+            </label>
             <Input
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
               placeholder="Exemple : Disque Archive"
+              aria-invalid={Boolean(fieldError('name'))}
+              className={
+                fieldError('name')
+                  ? 'border-destructive focus-visible:ring-destructive'
+                  : undefined
+              }
             />
+            {fieldError('name') ? (
+              <p className="text-xs text-destructive">{fieldError('name')}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Chemin racine</label>
+            <label className="text-sm font-medium">
+              Chemin racine <span className="text-destructive">*</span>
+            </label>
             <Input
               value={form.rootPath}
               onChange={(e) => {
@@ -283,10 +331,23 @@ export function DiskForm() {
                 updateField('rootPath', e.target.value);
               }}
               placeholder="Exemple : F:\"
+              aria-invalid={Boolean(fieldError('rootPath'))}
+              className={
+                fieldError('rootPath')
+                  ? 'border-destructive focus-visible:ring-destructive'
+                  : undefined
+              }
             />
-            <p className="text-xs text-muted-foreground">
-              Ce champ est rempli automatiquement si tu sélectionnes un disque.
-            </p>
+            {fieldError('rootPath') ? (
+              <p className="text-xs text-destructive">
+                {fieldError('rootPath')}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Ce champ est rempli automatiquement si tu sélectionnes un
+                disque.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

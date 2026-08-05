@@ -52,6 +52,7 @@ type DashboardDisk = {
   code: string;
   name: string;
   rootPath: string;
+  description: string | null;
   status: DiskStatus;
   isEnabled: boolean;
   sourceType: 'SERVER' | 'AGENT';
@@ -398,9 +399,14 @@ function DiskCardsView({ disks }: { disks: DashboardDisk[] }) {
               <ScanActionsModal
                 diskId={disk.id}
                 sourceType={disk.sourceType}
+                agentStatus={disk.agentDevice?.status}
               />
               <DiskRowActions
                 diskId={disk.id}
+                code={disk.code}
+                name={disk.name}
+                rootPath={disk.rootPath}
+                description={disk.description}
                 isEnabled={disk.isEnabled}
                 status={disk.status}
               />
@@ -442,6 +448,11 @@ function DiskTableView({ disks }: { disks: DashboardDisk[] }) {
                 >
                   {disk.displayLabel}
                 </Link>
+                {disk.displayLabel !== disk.code ? (
+                  <p className="text-xs font-normal text-muted-foreground">
+                    {disk.code}
+                  </p>
+                ) : null}
               </TableCell>
 
               <TableCell>
@@ -502,9 +513,14 @@ function DiskTableView({ disks }: { disks: DashboardDisk[] }) {
                   <ScanActionsModal
                     diskId={disk.id}
                     sourceType={disk.sourceType}
+                    agentStatus={disk.agentDevice?.status}
                   />
                   <DiskRowActions
                     diskId={disk.id}
+                    code={disk.code}
+                    name={disk.name}
+                    rootPath={disk.rootPath}
+                    description={disk.description}
                     isEnabled={disk.isEnabled}
                     status={disk.status}
                   />

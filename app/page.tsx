@@ -3,6 +3,11 @@ import { getDiskDisplayLabel, getDiskDisplayTitle } from '@/lib/disk-label';
 import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
 import { DashboardViewSwitcher } from '@/components/dashboard/dashboard-view-switcher';
 
+// Without this, Next.js prerenders this page as static at build time since
+// its Prisma calls aren't detected as a dynamic API — every disk toggle,
+// scan, or status change would be invisible until the next `next build`.
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const [disks, stats] = await Promise.all([
     prisma.disk.findMany({
@@ -61,6 +66,7 @@ export default async function DashboardPage() {
       code: disk.code,
       name: disk.name,
       rootPath: disk.rootPath,
+      description: disk.description,
       status: disk.status,
       isEnabled: disk.isEnabled,
       sourceType: disk.sourceType,

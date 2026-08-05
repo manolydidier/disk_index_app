@@ -21,9 +21,14 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
+import { EditDiskDialog } from '@/components/disks/edit-disk-dialog';
 
 type DiskRowActionsProps = {
   diskId: string;
+  code: string;
+  name: string;
+  rootPath: string;
+  description: string | null;
   isEnabled: boolean;
   status: 'ACTIVE' | 'INACTIVE' | 'DISCONNECTED';
 };
@@ -35,12 +40,19 @@ type ApiResponse = {
 
 export function DiskRowActions({
   diskId,
+  code,
+  name,
+  rootPath,
+  description,
   isEnabled,
   status
 }: DiskRowActionsProps) {
   const router = useRouter();
 
+  const mustDisableBeforeDelete = status === 'ACTIVE' && isEnabled;
+
   const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [loadingAction, setLoadingAction] = useState<
     'toggle' | 'delete' | null
@@ -148,10 +160,13 @@ export function DiskRowActions({
               type="button"
               variant="outline"
               className="h-10 w-full justify-start rounded-xl"
-              disabled
+              onClick={() => {
+                setOpen(false);
+                setEditOpen(true);
+              }}
             >
               <Pencil className="h-4 w-4" />
-              Modifier bientôt
+              Modifier le disque
             </Button>
 
             <Button
@@ -177,11 +192,26 @@ export function DiskRowActions({
               variant="destructive"
               className="h-10 w-full justify-start rounded-xl"
               onClick={() => setConfirmDeleteOpen(true)}
-              disabled={loadingAction !== null}
+              disabled={loadingAction !== null || mustDisableBeforeDelete}
+              title={
+                mustDisableBeforeDelete
+                  ? 'Désactive le disque avant de pouvoir le supprimer.'
+                  : undefined
+              }
             >
               <Trash2 className="h-4 w-4" />
               Supprimer le disque
             </Button>
+
+            {mustDisableBeforeDelete ? (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Ce disque est actif : désactive-le d’abord pour pouvoir le
+                  supprimer.
+                </span>
+              </div>
+            ) : null}
 
             <div className="rounded-xl border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
               Statut actuel : <strong>{status}</strong>
@@ -237,6 +267,12 @@ export function DiskRowActions({
           </div>
         </DialogContent>
       </Dialog>
+
+      <EditDiskDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        disk={{ id: diskId, code, name, rootPath, description }}
+      />
     </>
   );
 }

@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import { SearchClient } from '@/components/disks/search-client';
 
+// The disk list must reflect the current DB state, not a build-time snapshot.
+export const dynamic = 'force-dynamic';
+
 export default async function SearchPage() {
   const disks = await prisma.disk.findMany({
     where: { isEnabled: true },

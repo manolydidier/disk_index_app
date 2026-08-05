@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, ScanSearch } from 'lucide-react';
+import { AlertTriangle, Loader2, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -15,10 +15,12 @@ import {
 } from '@/components/ui/dialog';
 
 type DiskSourceType = 'SERVER' | 'AGENT';
+type AgentDeviceStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
 
 type ScanActionsModalProps = {
   diskId: string;
   sourceType: DiskSourceType;
+  agentStatus?: AgentDeviceStatus;
 };
 
 type RequestScanPayload = {
@@ -65,7 +67,8 @@ type ServerScanJobPayload = {
 
 export function ScanActionsModal({
   diskId,
-  sourceType
+  sourceType,
+  agentStatus
 }: ScanActionsModalProps) {
   const [open, setOpen] = useState(false);
   const [loadingType, setLoadingType] = useState<'FULL' | 'DIFFERENTIAL' | null>(null);
@@ -315,6 +318,7 @@ export function ScanActionsModal({
   }
 
   const isBusy = loadingType !== null;
+  const agentOffline = sourceType === 'AGENT' && agentStatus !== 'ONLINE';
 
   return (
     <Dialog
@@ -349,11 +353,25 @@ export function ScanActionsModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {agentOffline ? (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Agent hors ligne</p>
+                <p className="text-xs">
+                  L’agent de cet ordinateur n’a pas donné de nouvelles récemment. Lance-le
+                  (<code className="rounded bg-black/5 px-1 dark:bg-white/10">npm run agent:start</code>)
+                  puis réessaie.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Button
               type="button"
               onClick={() => void handleStartScan('DIFFERENTIAL')}
-              disabled={isBusy}
+              disabled={isBusy || agentOffline}
             >
               {loadingType === 'DIFFERENTIAL' ? (
                 <>
@@ -369,7 +387,7 @@ export function ScanActionsModal({
               type="button"
               variant="outline"
               onClick={() => void handleStartScan('FULL')}
-              disabled={isBusy}
+              disabled={isBusy || agentOffline}
             >
               {loadingType === 'FULL' ? (
                 <>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DiskStatus } from '@prisma/client';
+import { DiskStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateNextDiskCode } from '@/lib/disk-code';
 import { diskCreateSchema } from '@/lib/validators';
@@ -67,6 +67,22 @@ export async function POST(request: Request) {
     return NextResponse.json(jsonSafe(disk), { status: 201 });
   } catch (error) {
     console.error('DISK CREATE ERROR:', error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return NextResponse.json(
+        {
+          error: {
+            fieldErrors: {
+              code: ['Ce code est déjà utilisé par un autre disque.']
+            }
+          }
+        },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       {

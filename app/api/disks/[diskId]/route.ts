@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DiskStatus, ScanStatus } from '@prisma/client';
+import { DiskStatus, Prisma, ScanStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { diskUpdateSchema } from '@/lib/validators';
 import { normalizeDiskRootPath } from '@/lib/root-path';
@@ -77,6 +77,22 @@ export async function PATCH(
     return NextResponse.json(jsonSafe(disk));
   } catch (error) {
     console.error('DISK UPDATE ERROR:', error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return NextResponse.json(
+        {
+          error: {
+            fieldErrors: {
+              code: ['Ce code est déjà utilisé par un autre disque.']
+            }
+          }
+        },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       {

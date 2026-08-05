@@ -1,10 +1,12 @@
 // app/api/register/route.ts
 
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { authOptions } from "@/lib/auth-options";
 
 const registerSchema = z.object({
   name: z.string().min(2).max(80).optional().or(z.literal("")),
@@ -14,6 +16,26 @@ const registerSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const userCount = await prisma.user.count();
+
+    // Self-registration only bootstraps the very first account. Once at
+    // least one account exists, only an admin can create new ones —
+    // otherwise anyone reaching this endpoint could grant themself access
+    // to every indexed disk.
+    if (userCount > 0) {
+      const session = await getServerSession(authOptions);
+
+      if (session?.user?.role !== "ADMIN") {
+        return NextResponse.json(
+          {
+            error:
+              "Seul un administrateur peut créer un nouveau compte. Contacte ton administrateur.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const body = await request.json();
 
     const parsed = registerSchema.safeParse(body);
@@ -49,7 +71,7 @@ export async function POST(request: Request) {
         name: name || null,
         email: normalizedEmail,
         passwordHash,
-        role: "USER",
+        role: userCount === 0 ? "ADMIN" : "USER",
         isActive: true,
       },
       select: {
@@ -64,6 +86,7 @@ export async function POST(request: Request) {
       {
         message: "Compte créé avec succès.",
         user,
+        invitedByAdmin: userCount > 0,
       },
       { status: 201 }
     );

@@ -33,7 +33,7 @@ type ScanResponse = {
   error?: string;
 };
 
-export function ManualScanClient() {
+export default function ManualScanClient() {
   const [disks, setDisks] = useState<DiskOption[]>([]);
   const [diskId, setDiskId] = useState('');
   const [settings, setSettings] = useState<ScanSettings>(DEFAULT_SCAN_SETTINGS);

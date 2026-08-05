@@ -20,7 +20,7 @@ async function exists(targetPath: string) {
 async function getWindowsRoots(): Promise<RootOption[]> {
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
   const roots = await Promise.all(
-    letters.map(async (letter) => {
+    letters.map(async (letter): Promise<RootOption | null> => {
       const rootPath = `${letter}:\\`;
       const available = await exists(rootPath);
       if (!available) return null;

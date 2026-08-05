@@ -1,7 +1,14 @@
 import crypto from 'crypto';
 import path from 'path';
 import { NextResponse } from 'next/server';
-import { DiskSourceType, DiskStatus, EntryType } from '@prisma/client';
+import {
+  ActivityType,
+  DiskSourceType,
+  DiskStatus,
+  EntryType,
+  type FileEntry,
+  type Prisma
+} from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateNextDiskCode } from '@/lib/disk-code';
 import { authenticateAgentRequest } from '@/lib/agent/auth';
@@ -84,6 +91,17 @@ function buildFingerprint(
     .digest('hex');
 }
 
+function hasEntryChanged(existing: FileEntry, entry: PreparedEntry) {
+  return (
+    existing.name !== entry.name ||
+    existing.entryType !== entry.entryType ||
+    existing.extension !== entry.extension ||
+    String(existing.size ?? '') !== String(entry.size ?? '') ||
+    existing.modifiedAt?.getTime() !== entry.modifiedAt?.getTime() ||
+    existing.fingerprint !== entry.fingerprint
+  );
+}
+
 function chunkArray<T>(items: T[], chunkSize: number) {
   const chunks: T[][] = [];
 
@@ -162,12 +180,6 @@ export async function POST(request: Request) {
       });
     }
 
-    await prisma.fileEntry.deleteMany({
-      where: {
-        diskId: disk.id
-      }
-    });
-
     const preparedEntries: PreparedEntry[] = entries.map((entry) => {
       const relativePath = normalizeRelativePath(entry.relativePath);
       const extension = getExtension(entry.name, entry.type, entry.extension);
@@ -201,46 +213,127 @@ export async function POST(request: Request) {
       };
     });
 
-    for (const chunk of chunkArray(preparedEntries, 1000)) {
-      await prisma.fileEntry.createMany({
-        data: chunk.map(({ parentRelativePath: _parentRelativePath, ...entry }) => entry),
-        skipDuplicates: true
+    // Diff against what's already indexed instead of wiping and re-creating
+    // everything on every scan — on a mostly-unchanged drive this turns a
+    // rescan's DB cost from "proportional to every file" into "proportional
+    // to what actually changed" (the main reason agent rescans were slow).
+    const existingEntries = await prisma.fileEntry.findMany({
+      where: { diskId: disk.id, deletedAt: null }
+    });
+
+    const existingByPath = new Map(
+      existingEntries.map((entry) => [entry.relativePath, entry])
+    );
+
+    const matchedIds = new Set<string>();
+    const toCreate: PreparedEntry[] = [];
+    const toUpdate: Array<{ id: string; entry: PreparedEntry }> = [];
+
+    for (const entry of preparedEntries) {
+      const existing = existingByPath.get(entry.relativePath);
+
+      if (!existing) {
+        toCreate.push(entry);
+        continue;
+      }
+
+      matchedIds.add(existing.id);
+
+      if (hasEntryChanged(existing, entry)) {
+        toUpdate.push({ id: existing.id, entry });
+      }
+    }
+
+    const toDelete = existingEntries.filter((entry) => !matchedIds.has(entry.id));
+
+    if (toCreate.length > 0) {
+      for (const chunk of chunkArray(toCreate, 1000)) {
+        await prisma.fileEntry.createMany({
+          data: chunk.map(({ parentRelativePath: _parentRelativePath, ...entry }) => entry),
+          skipDuplicates: true
+        });
+      }
+    }
+
+    if (toUpdate.length > 0) {
+      for (const chunk of chunkArray(toUpdate, 200)) {
+        await Promise.all(
+          chunk.map(({ id, entry }) =>
+            prisma.fileEntry.update({
+              where: { id },
+              data: {
+                name: entry.name,
+                entryType: entry.entryType,
+                extension: entry.extension,
+                size: entry.size,
+                modifiedAt: entry.modifiedAt,
+                fingerprint: entry.fingerprint,
+                metadata: entry.metadata,
+                deletedAt: null
+              }
+            })
+          )
+        );
+      }
+    }
+
+    if (toDelete.length > 0) {
+      await prisma.fileEntry.updateMany({
+        where: { id: { in: toDelete.map((entry) => entry.id) } },
+        data: { deletedAt: new Date() }
       });
     }
 
-    const createdEntries = await prisma.fileEntry.findMany({
-      where: {
+    // Link every entry to its parent folder in one set-based statement
+    // instead of one UPDATE per file — for a large drive that was
+    // thousands of individual round trips (the other main cost behind
+    // slow agent scans), now a single query regardless of entry count.
+    await prisma.$executeRaw`
+      UPDATE "FileEntry" AS child
+      SET "parentId" = parent.id
+      FROM "FileEntry" AS parent
+      WHERE child."diskId" = ${disk.id}
+        AND parent."diskId" = ${disk.id}
+        AND child."deletedAt" IS NULL
+        AND parent."deletedAt" IS NULL
+        AND child."relativePath" LIKE '%/%'
+        AND parent."relativePath" = regexp_replace(child."relativePath", '/[^/]+$', '')
+    `;
+
+    const activities: Prisma.DiskActivityCreateManyInput[] = [
+      ...toCreate.map((entry) => ({
         diskId: disk.id,
-        deletedAt: null
-      },
-      select: {
-        id: true,
-        relativePath: true
-      }
-    });
+        activityType: ActivityType.ADDED,
+        path: entry.fullPath,
+        details: {
+          name: entry.name,
+          entryType: entry.entryType,
+          size: entry.size?.toString() ?? null,
+          modifiedAt: entry.modifiedAt?.toISOString() ?? null
+        }
+      })),
+      ...toUpdate.map(({ entry }) => ({
+        diskId: disk.id,
+        activityType: ActivityType.MODIFIED,
+        path: entry.fullPath,
+        details: {
+          modifiedAt: entry.modifiedAt?.toISOString() ?? null,
+          size: entry.size?.toString() ?? null
+        }
+      })),
+      ...toDelete.map((entry) => ({
+        diskId: disk.id,
+        activityType: ActivityType.DELETED,
+        path: entry.fullPath,
+        details: {
+          name: entry.name,
+          entryType: entry.entryType
+        }
+      }))
+    ];
 
-    const idByRelativePath = new Map(
-      createdEntries.map((entry) => [entry.relativePath, entry.id])
-    );
-
-    for (const chunk of chunkArray(preparedEntries, 500)) {
-      await Promise.all(
-        chunk.map((entry) => {
-          const entryId = idByRelativePath.get(entry.relativePath);
-          const parentId = entry.parentRelativePath
-            ? (idByRelativePath.get(entry.parentRelativePath) ?? null)
-            : null;
-
-          if (!entryId) {
-            return Promise.resolve();
-          }
-
-          return prisma.fileEntry.update({
-            where: { id: entryId },
-            data: { parentId }
-          });
-        })
-      );
+    if (activities.length > 0) {
+      await prisma.diskActivity.createMany({ data: activities });
     }
 
     await prisma.disk.update({
@@ -248,7 +341,8 @@ export async function POST(request: Request) {
       data: {
         lastScanAt: new Date(),
         status: DiskStatus.ACTIVE,
-        lastSeenAt: new Date()
+        lastSeenAt: new Date(),
+        lastActivityAt: activities.length > 0 ? new Date() : undefined
       }
     });
 
@@ -256,7 +350,10 @@ export async function POST(request: Request) {
       success: true,
       diskId: disk.id,
       code: disk.code,
-      indexedEntries: preparedEntries.length
+      indexedEntries: preparedEntries.length,
+      added: toCreate.length,
+      modified: toUpdate.length,
+      deleted: toDelete.length
     });
   } catch (error) {
     return NextResponse.json(

@@ -17,6 +17,7 @@ import {
 import { DiskStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { buildDiskTreeResponse } from '@/lib/tree';
+import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -92,6 +93,9 @@ export default async function DiskDetailPage({
   });
 
   const latestScan = disk.scanJobs[0] ?? null;
+  const agentDeviceStatus = disk.agentDevice
+    ? resolveAgentDeviceStatus(disk.agentDevice.status, disk.agentDevice.lastHeartbeatAt)
+    : 'OFFLINE';
   const machineLabel =
     disk.sourceType === 'SERVER'
       ? 'Serveur'
@@ -141,9 +145,7 @@ export default async function DiskDetailPage({
                 <StatusBadge status={disk.status} />
                 <SourceBadge sourceType={disk.sourceType} />
                 {disk.sourceType === 'AGENT' ? (
-                  <AgentStatusBadge
-                    status={disk.agentDevice?.status ?? 'OFFLINE'}
-                  />
+                  <AgentStatusBadge status={agentDeviceStatus} />
                 ) : null}
                 <Badge variant="outline">
                   {disk.entries.length.toLocaleString('fr-FR')} entrées
@@ -254,7 +256,7 @@ export default async function DiskDetailPage({
               <div className="space-y-3">
                 <InfoBlock
                   label="État agent"
-                  value={agentStatusLabels[disk.agentDevice?.status ?? 'OFFLINE']}
+                  value={agentStatusLabels[agentDeviceStatus]}
                 />
                 <InfoBlock
                   label="Dernier heartbeat"

@@ -125,23 +125,41 @@ function normalizeRelativePath(value: string) {
   return value.replace(/\\/g, '/').replace(/^\/+/, '').trim();
 }
 
-function shouldSkipName(name: string) {
-  const blocked = new Set([
-    'System Volume Information',
-    '$RECYCLE.BIN',
-    'pagefile.sys',
-    'hiberfil.sys',
-    'swapfile.sys',
-    'Config.Msi',
-    'found.000',
-    'found.001',
-    'found.002',
-    'found.003',
-    'found.004',
-    'found.005'
-  ]);
+// Recreated per call before, which meant rebuilding this Set on every single
+// directory entry during a scan — hoisted to module scope since it's static.
+const BLOCKED_NAMES = new Set([
+  'System Volume Information',
+  '$RECYCLE.BIN',
+  'pagefile.sys',
+  'hiberfil.sys',
+  'swapfile.sys',
+  'Config.Msi',
+  'found.000',
+  'found.001',
+  'found.002',
+  'found.003',
+  'found.004',
+  'found.005',
+  // Mirrors the server-side scanner's defaults (lib/scanner.ts) — these
+  // folders dominate item counts (npm caches, build output, VCS metadata)
+  // without adding useful index data, and were previously walked in full.
+  'node_modules',
+  '.git',
+  '.next',
+  '.cache',
+  'AppData'
+]);
 
-  return blocked.has(name);
+const BLOCKED_EXTENSIONS = new Set(['sys', 'tmp', 'log', 'etl']);
+
+function shouldSkipName(name: string) {
+  if (BLOCKED_NAMES.has(name)) return true;
+  return name.startsWith('.');
+}
+
+function shouldSkipExtension(extension: string | null) {
+  if (!extension) return false;
+  return BLOCKED_EXTENSIONS.has(extension);
 }
 
 function isIgnorableFsError(error: unknown) {
@@ -470,6 +488,14 @@ async function scanFilesystem(
 
       const absolutePath = path.join(currentAbsolutePath, dirent.name);
 
+      const extension = dirent.isFile()
+        ? path.extname(dirent.name).replace('.', '').toLowerCase() || null
+        : null;
+
+      if (shouldSkipExtension(extension)) {
+        continue;
+      }
+
       try {
         const stats = await lstat(absolutePath);
         const relativeFromRoot = path.relative(rootPath, absolutePath);
@@ -507,9 +533,6 @@ async function scanFilesystem(
 
           await walk(absolutePath);
         } else {
-          const extension =
-            path.extname(dirent.name).replace('.', '').toLowerCase() || null;
-
           output.push({
             name: dirent.name,
             relativePath,
@@ -679,8 +702,12 @@ async function executeAgentCommand(token: string, command: AgentCommand) {
     progressPercent: 100,
     result: {
       indexedEntries: entries.length,
-      mode:
-        command.commandType === 'FULL_SCAN' ? 'FULL' : 'DIFFERENTIAL_AS_FULL'
+      // The agent always walks the full drive (there's no cheap way to know
+      // what changed without walking it), but the server now diffs the
+      // upload against what's indexed and only writes real changes — so a
+      // DIFFERENTIAL_SCAN command is a genuine differential from the DB's
+      // point of view even though the filesystem walk itself is a full one.
+      mode: command.commandType === 'FULL_SCAN' ? 'FULL' : 'DIFFERENTIAL'
     }
   });
 }

@@ -9,7 +9,10 @@ import {
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { startDiskScan } from '@/lib/scanner';
-import { generateNextDiskCode } from '@/lib/disk-code';
+import {
+  findDiskByRootPathCaseInsensitive,
+  generateNextDiskCode
+} from '@/lib/disk-code';
 import {
   listConnectedDevices,
   type DetectedDevice
@@ -344,14 +347,7 @@ class AutomationDaemon {
       return;
     }
 
-    const disk = await prisma.disk.findFirst({
-      where: {
-        rootPath: {
-          equals: device.rootPath,
-          mode: 'insensitive'
-        }
-      }
-    });
+    const disk = await findDiskByRootPathCaseInsensitive(device.rootPath);
 
     if (disk) {
       const pref = await getDiskPreferenceSnapshot(disk.id);
@@ -888,7 +884,7 @@ class AutomationDaemon {
         eventType: input.eventType,
         title: input.title,
         message: input.message,
-        payload: input.payload,
+        payload: input.payload as Prisma.InputJsonValue,
         dedupeKey: input.dedupeKey,
         requiresAction: true,
         actionState: AutomationActionState.PENDING

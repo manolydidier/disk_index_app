@@ -4,8 +4,7 @@ import { withAuth } from "next-auth/middleware";
 
 export default withAuth({
   pages: {
-    signIn: "/",
-    
+    signIn: "/login",
   },
 
   callbacks: {
@@ -16,9 +15,5 @@ export default withAuth({
 });
 
 export const config = {
-  matcher: [
-    "/disks/:path*",
-    "/settings/:path*",
-    
-  ],
+  matcher: ["/((?!login|api|_next/static|_next/image|favicon.ico).*)"],
 };

@@ -51,6 +51,11 @@ export async function GET(request: Request) {
 
   const normalizedExtension = query.replace(/^\./, '').toLowerCase();
 
+  // A trailing backslash makes Postgres' ILIKE pattern end on a dangling
+  // escape character and reject the query outright — strip it before
+  // building the `contains` filters (Windows paths often end this way).
+  const likeSafeQuery = query.replace(/\\+$/, '');
+
   const results = await prisma.fileEntry.findMany({
     where: {
       deletedAt: null,
@@ -58,19 +63,19 @@ export async function GET(request: Request) {
       OR: [
         {
           name: {
-            contains: query,
+            contains: likeSafeQuery,
             mode: 'insensitive'
           }
         },
         {
           fullPath: {
-            contains: query,
+            contains: likeSafeQuery,
             mode: 'insensitive'
           }
         },
         {
           relativePath: {
-            contains: query,
+            contains: likeSafeQuery,
             mode: 'insensitive'
           }
         },

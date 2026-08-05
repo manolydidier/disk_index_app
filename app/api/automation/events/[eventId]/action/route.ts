@@ -8,7 +8,10 @@ import {
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { startDiskScan } from '@/lib/scanner';
-import { generateNextDiskCode } from '@/lib/disk-code';
+import {
+  findDiskByRootPathCaseInsensitive,
+  generateNextDiskCode
+} from '@/lib/disk-code';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -172,14 +175,7 @@ export async function POST(
         );
       }
 
-      const existingDisk = await prisma.disk.findFirst({
-        where: {
-          rootPath: {
-            equals: rootPath,
-            mode: 'insensitive'
-          }
-        }
-      });
+      const existingDisk = await findDiskByRootPathCaseInsensitive(rootPath);
 
       if (existingDisk) {
         diskId = existingDisk.id;

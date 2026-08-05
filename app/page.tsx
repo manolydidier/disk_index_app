@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { getDiskDisplayLabel, getDiskDisplayTitle } from '@/lib/disk-label';
+import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
 import { DashboardViewSwitcher } from '@/components/dashboard/dashboard-view-switcher';
 
 export default async function DashboardPage() {
@@ -92,7 +93,10 @@ export default async function DashboardPage() {
             machineId: disk.agentDevice.machineId,
             hostName: disk.agentDevice.hostName,
             userLabel: disk.agentDevice.userLabel,
-            status: disk.agentDevice.status,
+            status: resolveAgentDeviceStatus(
+              disk.agentDevice.status,
+              disk.agentDevice.lastHeartbeatAt
+            ),
             lastHeartbeatAt: disk.agentDevice.lastHeartbeatAt?.toISOString() ?? null,
             lastSeenAt: disk.agentDevice.lastSeenAt?.toISOString() ?? null
           }

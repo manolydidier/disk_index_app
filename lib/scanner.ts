@@ -4,7 +4,7 @@ import {
   DiskStatus,
   EntryType,
   type FileEntry,
-  type Prisma,
+  Prisma,
   ScanStatus,
   ScanType
 } from '@prisma/client';
@@ -761,7 +761,7 @@ async function persistScanResult(params: {
       lastFullScanAt: scanType === ScanType.FULL ? now : undefined,
       lastDiffScanAt: scanType === ScanType.DIFFERENTIAL ? now : undefined,
       lastActivityAt: activities.length > 0 ? now : undefined,
-      lastTreeSnapshot: snapshot
+      lastTreeSnapshot: snapshot ?? Prisma.JsonNull
     }
   });
 

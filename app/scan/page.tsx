@@ -1,4 +1,4 @@
-import { ManualScanClient } from "../settings/scan/page";
+import ManualScanClient from "../settings/scan/page";
 
 
 export const dynamic = 'force-dynamic';

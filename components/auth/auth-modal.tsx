@@ -96,6 +96,15 @@ export function AuthModal({
       return;
     }
 
+    if (data.invitedByAdmin) {
+      // An admin created this account for someone else — signing in here
+      // would replace the admin's own session with the new account's.
+      setOpen(false);
+      resetForm();
+      router.refresh();
+      return;
+    }
+
     const result = await signIn("credentials", {
       email,
       password,

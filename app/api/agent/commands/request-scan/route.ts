@@ -5,6 +5,7 @@ import {
   DiskSourceType
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,9 +61,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!disk.agentDevice || disk.agentDevice.status !== 'ONLINE') {
+    const effectiveStatus = disk.agentDevice
+      ? resolveAgentDeviceStatus(disk.agentDevice.status, disk.agentDevice.lastHeartbeatAt)
+      : 'OFFLINE';
+
+    if (effectiveStatus !== 'ONLINE') {
       return NextResponse.json(
-        { error: 'Agent hors ligne.' },
+        {
+          error:
+            "Agent hors ligne. Lance l'agent (npm run agent:start) sur la machine qui héberge ce disque, puis réessaie."
+        },
         { status: 400 }
       );
     }

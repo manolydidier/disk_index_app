@@ -3,7 +3,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Toaster } from 'sonner';
-import { HardDrive, Search, Settings2, LayoutGrid } from 'lucide-react';
+import { ChevronDown, Files, HardDrive, PieChart, Search, Settings2, LayoutGrid, Wrench } from 'lucide-react';
 
 import './globals.css';
 
@@ -12,6 +12,14 @@ import { AutomationMonitor } from '@/components/providers/automation-monitor';
 import { AuthProvider } from '@/components/providers/auth-provider';
 import { AuthActions } from '@/components/auth/auth-actions';
 import { NavLink, MobileIconLink } from '@/components/layout/nav-link';
+import { CommandPalette } from '@/components/layout/command-palette';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 
 export const metadata: Metadata = {
   title: 'Disk Indexer',
@@ -58,6 +66,42 @@ export default function RootLayout({
                       Recherche
                     </NavLink>
 
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="inline-flex items-center gap-2 rounded-full border border-transparent px-3 py-2 text-sm text-muted-foreground outline-none transition hover:border-border hover:bg-muted hover:text-foreground data-[state=open]:border-border data-[state=open]:bg-muted data-[state=open]:text-foreground">
+                        <Wrench className="h-4 w-4" />
+                        <span>Outils</span>
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Outils d&apos;analyse</DropdownMenuLabel>
+
+                        <DropdownMenuItem asChild>
+                          <Link href="/storage">
+                            <PieChart className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="font-medium">Analyse d&apos;espace</p>
+                              <p className="text-xs text-muted-foreground">
+                                Répartition du stockage par type de fichier
+                              </p>
+                            </div>
+                          </Link>
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem asChild>
+                          <Link href="/duplicates">
+                            <Files className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="font-medium">Doublons</p>
+                              <p className="text-xs text-muted-foreground">
+                                Fichiers en double par nom et taille
+                              </p>
+                            </div>
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
                     <NavLink
                       href="/settings/automation"
                       icon={<Settings2 className="h-4 w-4" />}
@@ -68,14 +112,7 @@ export default function RootLayout({
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="hidden text-right lg:block">
-                    <p className="text-sm font-medium">
-                      Recherche instantanée et supervision
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Interface épurée et optimisée
-                    </p>
-                  </div>
+                  <CommandPalette />
 
                   <AuthActions />
 
@@ -86,6 +123,14 @@ export default function RootLayout({
 
                     <MobileIconLink href="/search" label="Recherche">
                       <Search className="h-4 w-4" />
+                    </MobileIconLink>
+
+                    <MobileIconLink href="/storage" label="Analyse d'espace">
+                      <PieChart className="h-4 w-4" />
+                    </MobileIconLink>
+
+                    <MobileIconLink href="/duplicates" label="Doublons">
+                      <Files className="h-4 w-4" />
                     </MobileIconLink>
 
                     <MobileIconLink

@@ -65,7 +65,11 @@ export function AuthForm({
     });
 
     if (result?.error) {
-      setError("Email ou mot de passe invalide.");
+      setError(
+        result.error === "RATE_LIMITED"
+          ? "Trop de tentatives échouées. Réessaie dans quelques minutes."
+          : "Email ou mot de passe invalide."
+      );
       return;
     }
 

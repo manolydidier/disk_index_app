@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   Copy,
   FolderOpen,
   Info,
@@ -9,10 +10,12 @@ import {
   Search,
   HardDrive,
   FileText,
+  Filter,
   Folder,
   ExternalLink,
   Eye,
-  MousePointerClick
+  MousePointerClick,
+  X
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -92,9 +95,39 @@ function getOpenDisabledReason(item: SearchResult) {
   return null;
 }
 
+const SIZE_PRESETS = [
+  { label: 'Toutes tailles', value: '' },
+  { label: '> 1 Mo', value: '1048576' },
+  { label: '> 10 Mo', value: '10485760' },
+  { label: '> 100 Mo', value: '104857600' },
+  { label: '> 1 Go', value: '1073741824' }
+];
+
+type Filters = {
+  extension: string;
+  entryType: '' | 'FILE' | 'FOLDER';
+  sizeMin: string;
+  modifiedAfter: string;
+  modifiedBefore: string;
+};
+
+const EMPTY_FILTERS: Filters = {
+  extension: '',
+  entryType: '',
+  sizeMin: '',
+  modifiedAfter: '',
+  modifiedBefore: ''
+};
+
+function countActiveFilters(filters: Filters) {
+  return Object.values(filters).filter(Boolean).length;
+}
+
 export function SearchClient({ disks }: { disks: DiskOption[] }) {
   const [query, setQuery] = useState('');
   const [diskId, setDiskId] = useState('');
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -104,6 +137,7 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
 
   const debounceRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
+  const activeFilterCount = countActiveFilters(filters);
 
   const subtitle = useMemo(() => {
     if (!diskId) return 'Tous les disques indexés';
@@ -118,6 +152,11 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
     try {
       const params = new URLSearchParams({ q: trimmedQuery });
       if (diskId) params.set('diskId', diskId);
+      if (filters.extension) params.set('extension', filters.extension);
+      if (filters.entryType) params.set('entryType', filters.entryType);
+      if (filters.sizeMin) params.set('sizeMin', filters.sizeMin);
+      if (filters.modifiedAfter) params.set('modifiedAfter', filters.modifiedAfter);
+      if (filters.modifiedBefore) params.set('modifiedBefore', filters.modifiedBefore);
 
       const response = await fetch(`/api/search?${params.toString()}`, {
         cache: 'no-store'
@@ -182,7 +221,7 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, diskId]);
+  }, [query, diskId, filters]);
 
   function openDetails(item: SearchResult) {
     setSelected(item);
@@ -318,6 +357,103 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
               )}
               {loading ? 'Recherche...' : 'Rechercher'}
             </Button>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
+            >
+              <Filter className="h-3.5 w-3.5" />
+              Filtres avancés
+              {activeFilterCount > 0 ? (
+                <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">
+                  {activeFilterCount}
+                </Badge>
+              ) : null}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {filtersOpen ? (
+              <div className="mt-3 grid gap-3 rounded-xl border bg-muted/10 p-4 sm:grid-cols-2 lg:grid-cols-5">
+                <FilterField label="Extension">
+                  <Input
+                    value={filters.extension}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, extension: e.target.value.replace(/^\./, '') }))
+                    }
+                    placeholder="pdf, docx..."
+                    className="h-9"
+                  />
+                </FilterField>
+
+                <FilterField label="Type">
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={filters.entryType}
+                    onChange={(e) =>
+                      setFilters((f) => ({
+                        ...f,
+                        entryType: e.target.value as Filters['entryType']
+                      }))
+                    }
+                  >
+                    <option value="">Fichiers et dossiers</option>
+                    <option value="FILE">Fichiers uniquement</option>
+                    <option value="FOLDER">Dossiers uniquement</option>
+                  </select>
+                </FilterField>
+
+                <FilterField label="Taille minimum">
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={filters.sizeMin}
+                    onChange={(e) => setFilters((f) => ({ ...f, sizeMin: e.target.value }))}
+                  >
+                    {SIZE_PRESETS.map((preset) => (
+                      <option key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </FilterField>
+
+                <FilterField label="Modifié après">
+                  <Input
+                    type="date"
+                    value={filters.modifiedAfter}
+                    onChange={(e) => setFilters((f) => ({ ...f, modifiedAfter: e.target.value }))}
+                    className="h-9"
+                  />
+                </FilterField>
+
+                <FilterField label="Modifié avant">
+                  <Input
+                    type="date"
+                    value={filters.modifiedBefore}
+                    onChange={(e) => setFilters((f) => ({ ...f, modifiedBefore: e.target.value }))}
+                    className="h-9"
+                  />
+                </FilterField>
+
+                {activeFilterCount > 0 ? (
+                  <div className="flex items-end sm:col-span-2 lg:col-span-5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFilters(EMPTY_FILTERS)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Réinitialiser les filtres
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {!query.trim() ? (
@@ -606,6 +742,15 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      {children}
+    </div>
   );
 }
 

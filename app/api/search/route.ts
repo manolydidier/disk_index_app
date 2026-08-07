@@ -48,6 +48,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q')?.trim() ?? '';
   const diskId = searchParams.get('diskId')?.trim() ?? '';
+  const extensionFilter = searchParams.get('extension')?.trim().replace(/^\./, '').toLowerCase() ?? '';
+  const entryTypeFilter = searchParams.get('entryType')?.trim().toUpperCase() ?? '';
+  const sizeMinRaw = searchParams.get('sizeMin')?.trim() ?? '';
+  const sizeMaxRaw = searchParams.get('sizeMax')?.trim() ?? '';
+  const modifiedAfterRaw = searchParams.get('modifiedAfter')?.trim() ?? '';
+  const modifiedBeforeRaw = searchParams.get('modifiedBefore')?.trim() ?? '';
 
   if (!query) {
     return NextResponse.json([], { status: 200 });
@@ -60,10 +66,35 @@ export async function GET(request: Request) {
   // building the `contains` filters (Windows paths often end this way).
   const likeSafeQuery = query.replace(/\\+$/, '');
 
+  const sizeMin = sizeMinRaw && !Number.isNaN(Number(sizeMinRaw)) ? BigInt(Math.trunc(Number(sizeMinRaw))) : null;
+  const sizeMax = sizeMaxRaw && !Number.isNaN(Number(sizeMaxRaw)) ? BigInt(Math.trunc(Number(sizeMaxRaw))) : null;
+  const modifiedAfter = modifiedAfterRaw && !Number.isNaN(Date.parse(modifiedAfterRaw)) ? new Date(modifiedAfterRaw) : null;
+  const modifiedBefore = modifiedBeforeRaw && !Number.isNaN(Date.parse(modifiedBeforeRaw)) ? new Date(modifiedBeforeRaw) : null;
+
   const results = await prisma.fileEntry.findMany({
     where: {
       deletedAt: null,
       ...(diskId ? { diskId } : {}),
+      ...(extensionFilter ? { extension: extensionFilter } : {}),
+      ...(entryTypeFilter === 'FILE' || entryTypeFilter === 'FOLDER'
+        ? { entryType: entryTypeFilter }
+        : {}),
+      ...(sizeMin !== null || sizeMax !== null
+        ? {
+            size: {
+              ...(sizeMin !== null ? { gte: sizeMin } : {}),
+              ...(sizeMax !== null ? { lte: sizeMax } : {})
+            }
+          }
+        : {}),
+      ...(modifiedAfter || modifiedBefore
+        ? {
+            modifiedAt: {
+              ...(modifiedAfter ? { gte: modifiedAfter } : {}),
+              ...(modifiedBefore ? { lte: modifiedBefore } : {})
+            }
+          }
+        : {}),
       OR: [
         {
           name: {

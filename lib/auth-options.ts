@@ -5,6 +5,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 
 import { prisma } from "@/lib/prisma";
+import { clearLoginFailures, isLoginLocked, recordLoginFailure } from "@/lib/rate-limit";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -29,6 +30,10 @@ export const authOptions: NextAuthOptions = {
 
         const email = credentials.email.toLowerCase().trim();
 
+        if (isLoginLocked(email)) {
+          throw new Error("RATE_LIMITED");
+        }
+
         const user = await prisma.user.findUnique({
           where: {
             email,
@@ -36,6 +41,7 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (!user) {
+          recordLoginFailure(email);
           return null;
         }
 
@@ -49,8 +55,11 @@ export const authOptions: NextAuthOptions = {
         );
 
         if (!isPasswordValid) {
+          recordLoginFailure(email);
           return null;
         }
+
+        clearLoginFailures(email);
 
         return {
           id: user.id,

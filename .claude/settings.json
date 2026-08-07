@@ -60,7 +60,18 @@
       "Bash(node -e ' *)",
       "Bash(powershell -NoProfile -Command \"\\(Get-NetTCPConnection -LocalPort 3000 -State Listen\\).OwningProcess\")",
       "Bash(powershell -NoProfile -Command \"taskkill /PID 23400 /T /F\")",
-      "Bash(nohup npm run start)"
+      "Bash(nohup npm run start)",
+      "Bash(powershell -NoProfile -Command \"taskkill /PID 5836 /T /F\")",
+      "Bash(powershell -NoProfile -Command \"taskkill /PID 16224 /T /F\")",
+      "Bash(powershell -NoProfile -Command \"taskkill /PID 22152 /T /F\")",
+      "Bash(curl -s -o /dev/null -w \"/scan -> %{http_code}\\\\n\" http://localhost:3000/scan)",
+      "Bash(curl -s -o /dev/null -w \"/settings/scan -> %{http_code}\\\\n\" http://localhost:3000/settings/scan)",
+      "Bash(curl -s -o /dev/null -w \"/settings/automation -> %{http_code}\\\\n\" http://localhost:3000/settings/automation)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"/scan -> %{http_code}\\\\n\" http://localhost:3000/scan)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"/settings/scan -> %{http_code}\\\\n\" http://localhost:3000/settings/scan)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"/settings/automation -> %{http_code}\\\\n\" http://localhost:3000/settings/automation)",
+      "Bash(npm view *)",
+      "Bash(powershell -NoProfile -Command \"taskkill /PID 14240 /T /F\")"
     ],
     "additionalDirectories": [
       "\\tmp"

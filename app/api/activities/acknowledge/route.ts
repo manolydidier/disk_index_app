@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { activityAcknowledgeSchema } from '@/lib/validators';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   const payload = await request.json().catch(() => ({}));
   const parsed = activityAcknowledgeSchema.safeParse(payload);
 

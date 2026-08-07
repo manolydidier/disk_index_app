@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server';
 import { DiskSourceType, DiskStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateNextDiskCode } from '@/lib/disk-code';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     const body = await request.json().catch(() => ({}));
 

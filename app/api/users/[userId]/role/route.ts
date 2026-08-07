@@ -60,6 +60,22 @@ export async function PATCH(
     );
   }
 
+  if (existingUser.role === "ADMIN" && parsed.data.role !== "ADMIN") {
+    const remainingAdmins = await prisma.user.count({
+      where: { role: "ADMIN" }
+    });
+
+    if (remainingAdmins <= 1) {
+      return NextResponse.json(
+        {
+          error:
+            "Impossible de rétrograder le dernier administrateur restant."
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const updatedUser = await prisma.user.update({
     where: {
       id: userId,

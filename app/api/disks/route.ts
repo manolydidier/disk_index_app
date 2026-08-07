@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { generateNextDiskCode } from '@/lib/disk-code';
 import { diskCreateSchema } from '@/lib/validators';
 import { normalizeDiskRootPath } from '@/lib/root-path';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,9 @@ function jsonSafe<T>(value: T): T {
 }
 
 export async function GET() {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   const disks = await prisma.disk.findMany({
     orderBy: { code: 'asc' },
     include: {
@@ -33,6 +37,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     const payload = await request.json().catch(() => ({}));
     console.error('DISK CREATE PAYLOAD:', payload);

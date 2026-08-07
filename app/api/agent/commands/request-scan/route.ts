@@ -6,11 +6,15 @@ import {
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     const body = await request.json().catch(() => ({}));
 

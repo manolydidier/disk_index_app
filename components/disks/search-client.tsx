@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Copy,
   FolderOpen,
   Info,
+  Loader2,
   Search,
   HardDrive,
   FileText,
@@ -98,7 +99,11 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const debounceRef = useRef<number | null>(null);
+  const requestIdRef = useRef(0);
 
   const subtitle = useMemo(() => {
     if (!diskId) return 'Tous les disques indexés';
@@ -106,16 +111,8 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
     return disk ? `${disk.code} — ${disk.name}` : 'Filtre actif';
   }, [diskId, disks]);
 
-  async function runSearch() {
-    const trimmedQuery = query.trim();
-
-    if (!trimmedQuery) {
-      setResults([]);
-      setSelected(null);
-      setDetailsOpen(false);
-      return;
-    }
-
+  async function runSearch(trimmedQuery: string) {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
 
     try {
@@ -138,18 +135,13 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
         );
       }
 
-      const nextResults = Array.isArray(payload) ? payload : [];
-      setResults(nextResults);
+      if (requestId !== requestIdRef.current) return;
 
-      if (nextResults.length === 0) {
-        setSelected(null);
-        setDetailsOpen(false);
-
-        toast.info('Aucun résultat', {
-          description: 'Aucun fichier ou dossier ne correspond à cette recherche.'
-        });
-      }
+      setResults(Array.isArray(payload) ? payload : []);
+      setHasSearched(true);
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
+
       const message =
         error instanceof Error ? error.message : 'La recherche a échoué.';
 
@@ -157,9 +149,40 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
         description: message
       });
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }
+
+  useEffect(() => {
+    const trimmed = query.trim();
+
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
+    }
+
+    if (!trimmed) {
+      requestIdRef.current += 1;
+      setResults([]);
+      setSelected(null);
+      setDetailsOpen(false);
+      setHasSearched(false);
+      setLoading(false);
+      return;
+    }
+
+    debounceRef.current = window.setTimeout(() => {
+      void runSearch(trimmed);
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, diskId]);
 
   function openDetails(item: SearchResult) {
     setSelected(item);
@@ -249,16 +272,23 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
 
         <CardContent className="space-y-6">
           <div className="grid gap-3 lg:grid-cols-[1fr_240px_auto]">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Nom de fichier, extension, dossier, chemin..."
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  void runSearch();
-                }
-              }}
-            />
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Nom de fichier, extension, dossier, chemin..."
+                className="pl-9"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && query.trim()) {
+                    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+                    void runSearch(query.trim());
+                  }
+                }}
+              />
+            </div>
 
             <select
               className="h-10 rounded-md border bg-background px-3 text-sm"
@@ -273,35 +303,70 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
               ))}
             </select>
 
-            <Button onClick={runSearch} disabled={!query.trim() || loading}>
-              <Search className="h-4 w-4" />
+            <Button
+              onClick={() => {
+                if (!query.trim()) return;
+                if (debounceRef.current) window.clearTimeout(debounceRef.current);
+                void runSearch(query.trim());
+              }}
+              disabled={!query.trim() || loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
               {loading ? 'Recherche...' : 'Rechercher'}
             </Button>
           </div>
 
-          <div className="rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Chemin exact</TableHead>
-                  <TableHead>Disque</TableHead>
-                  <TableHead>Taille</TableHead>
-                  <TableHead>Modifié le</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
+          {!query.trim() ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-14 text-center">
+              <Search className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm font-medium">Recherche un fichier ou un dossier</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Tape un nom, une extension (ex. .pdf) ou un bout de chemin — les
+                résultats s’affichent au fur et à mesure.
+              </p>
+            </div>
+          ) : loading && results.length === 0 ? (
+            <div className="flex items-center justify-center gap-3 rounded-xl border px-6 py-14 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Recherche en cours...
+            </div>
+          ) : hasSearched && results.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-14 text-center">
+              <Search className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm font-medium">Aucun résultat</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Rien ne correspond à « {query.trim()} »
+                {diskId ? ' sur ce disque' : ''}. Essaie un autre terme ou
+                élargis le filtre de disque.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {results.length} résultat{results.length > 1 ? 's' : ''}
+                {loading ? ' · actualisation...' : ''}
+              </p>
 
-              <TableBody>
-                {results.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
-                      Aucun résultat.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  results.map((result) => {
+              <div className="overflow-hidden rounded-xl border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nom</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Chemin exact</TableHead>
+                      <TableHead>Disque</TableHead>
+                      <TableHead>Taille</TableHead>
+                      <TableHead>Modifié le</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {results.map((result) => {
                     const disabledReason = getOpenDisabledReason(result);
 
                     return (
@@ -310,7 +375,16 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
                         className="cursor-pointer hover:bg-muted/40"
                         onClick={() => openDetails(result)}
                       >
-                        <TableCell className="font-medium">{result.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {result.entryType === 'FILE' ? (
+                              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                            )}
+                            <span className="truncate">{result.name}</span>
+                          </div>
+                        </TableCell>
 
                         <TableCell>
                           <Badge variant="outline">
@@ -379,11 +453,12 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
                         </TableCell>
                       </TableRow>
                     );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

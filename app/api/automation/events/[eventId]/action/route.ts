@@ -12,6 +12,7 @@ import {
   findDiskByRootPathCaseInsensitive,
   generateNextDiskCode
 } from '@/lib/disk-code';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,9 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ eventId: string }> }
 ) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   const { eventId } = await context.params;
   const body = await request.json().catch(() => ({}));
   const action = String(body.action ?? '') as EventAction;

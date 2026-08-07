@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ScanType } from '@prisma/client';
 import { z } from 'zod';
 import { runDiskScanSync } from '@/lib/scanner';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ diskId: string }> }
 ) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     const { diskId } = await context.params;
     const body = await request.json().catch(() => ({}));

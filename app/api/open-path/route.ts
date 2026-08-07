@@ -3,6 +3,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireSession } from '@/lib/require-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -116,6 +117,9 @@ async function revealItemOnHost(targetPath: string) {
 }
 
 export async function POST(request: Request) {
+  const { unauthorized } = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     const payload = (await request.json().catch(() => ({}))) as OpenPathPayload;
     const absolutePath = payload.absolutePath?.trim();

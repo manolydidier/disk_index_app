@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { DiskStatus } from '@prisma/client';
 import {
-  Activity,
   BellDot,
   CheckCircle2,
   Clock3,
@@ -15,9 +14,7 @@ import {
   LayoutGrid,
   List,
   Loader2,
-  Monitor,
   Search,
-  Server,
   Wifi,
   WifiOff,
   X,
@@ -185,7 +182,7 @@ export function DashboardViewSwitcher({
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-3 md:grid-cols-3">
         <StatCard
           icon={<HardDrive className="h-5 w-5" />}
           title="Disques gérés"
@@ -242,10 +239,15 @@ export function DashboardViewSwitcher({
                   </Button>
                 </div>
 
-                <Button asChild variant="outline" className="rounded-full">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="rounded-full"
+                  title="Recherche globale dans le contenu indexé de tous les disques"
+                >
                   <Link href="/search">
                     <Search className="h-4 w-4" />
-                    Recherche
+                    Rechercher un fichier
                   </Link>
                 </Button>
 
@@ -260,7 +262,7 @@ export function DashboardViewSwitcher({
                 <Input
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Rechercher par disque, source, machine, statut ou commande..."
+                  placeholder="Filtrer les disques affichés (nom, machine, statut...)"
                   className="h-10 rounded-xl pl-9 pr-10"
                 />
 
@@ -290,9 +292,24 @@ export function DashboardViewSwitcher({
 
           <CardContent>
             {filteredDisks.length === 0 ? (
-              <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-                Aucun disque ne correspond à la recherche.
-              </div>
+              disks.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-14 text-center">
+                  <HardDrive className="h-10 w-10 text-muted-foreground" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      Aucun disque pour le moment
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Ajoute ton premier disque pour commencer à l'indexer.
+                    </p>
+                  </div>
+                  <AddDiskModal />
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                  Aucun disque ne correspond à la recherche.
+                </div>
+              )
             ) : viewMode === 'cards' ? (
               <DiskCardsView disks={filteredDisks} />
             ) : (
@@ -324,6 +341,10 @@ function DiskCardsView({ disks }: { disks: DashboardDisk[] }) {
                   {disk.displayLabel}
                 </Link>
 
+                {disk.displayLabel !== disk.code ? (
+                  <p className="text-xs text-muted-foreground">{disk.code}</p>
+                ) : null}
+
                 <p className="text-sm text-muted-foreground">{disk.name}</p>
               </div>
 
@@ -352,38 +373,70 @@ function DiskCardsView({ disks }: { disks: DashboardDisk[] }) {
               />
             </div>
 
-            <div className="grid gap-3">
-              <SourceInfoCard disk={disk} />
-              <AgentInfoCard disk={disk} />
+            <div className="divide-y rounded-xl border">
+              <InfoRow
+                label="Source"
+                value={
+                  disk.sourceType === 'SERVER'
+                    ? 'Disque scanné par le serveur'
+                    : 'Disque remonté par un agent utilisateur'
+                }
+                sub={disk.sourceLabel ?? undefined}
+                badge={<SourceBadge sourceType={disk.sourceType} />}
+              />
+
+              <InfoRow
+                label="Machine"
+                value={getMachineLabel(disk)}
+                sub={
+                  disk.sourceType === 'AGENT'
+                    ? disk.agentDevice?.userLabel
+                      ? `Utilisateur : ${disk.agentDevice.userLabel}`
+                      : disk.lastSeenAt
+                        ? `Dernière activité : ${new Date(disk.lastSeenAt).toLocaleString('fr-FR')}`
+                        : 'Agent sans activité récente'
+                    : 'Scan exécuté directement côté serveur'
+                }
+                badge={
+                  disk.sourceType === 'AGENT' ? (
+                    <AgentStatusBadge status={disk.agentDevice?.status ?? 'OFFLINE'} />
+                  ) : undefined
+                }
+              />
+
               {disk.sourceType === 'AGENT' ? (
-                <AgentCommandInfoCard disk={disk} />
+                <InfoRow
+                  label="Commande agent"
+                  value={
+                    disk.latestAgentCommand
+                      ? getCommandTypeLabel(disk.latestAgentCommand.commandType)
+                      : 'Aucune commande récente'
+                  }
+                  sub={
+                    disk.latestAgentCommand
+                      ? `${disk.latestAgentCommand.phase ?? '—'} · ${disk.latestAgentCommand.progressPercent ?? 0}%`
+                      : undefined
+                  }
+                  error={disk.latestAgentCommand?.errorMessage ?? undefined}
+                  badge={
+                    disk.latestAgentCommand ? (
+                      <CommandStatusBadge status={disk.latestAgentCommand.status} />
+                    ) : undefined
+                  }
+                />
               ) : null}
-            </div>
 
-            <div className="rounded-xl border bg-background px-3 py-3">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <Activity className="h-3.5 w-3.5" />
-                Dernier scan
-              </div>
-
-              <div className="mt-2 text-sm">
-                {disk.lastScan ? (
-                  <div className="space-y-1">
-                    <p className="font-medium">
-                      {disk.lastScan.scanType === 'FULL'
-                        ? 'Scan complet'
-                        : 'Scan différentiel'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Statut : {disk.lastScan.status}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Aucun scan enregistré
-                  </p>
-                )}
-              </div>
+              <InfoRow
+                label="Dernier scan"
+                value={
+                  disk.lastScan
+                    ? disk.lastScan.scanType === 'FULL'
+                      ? 'Scan complet'
+                      : 'Scan différentiel'
+                    : 'Aucun scan enregistré'
+                }
+                sub={disk.lastScan ? `Statut : ${disk.lastScan.status}` : undefined}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -571,114 +624,35 @@ function ViewDiskButton({ diskId }: { diskId: string }) {
   );
 }
 
-function SourceInfoCard({ disk }: { disk: DashboardDisk }) {
+function InfoRow({
+  label,
+  value,
+  sub,
+  error,
+  badge
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  error?: string;
+  badge?: React.ReactNode;
+}) {
   return (
-    <div className="rounded-xl border bg-muted/10 px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Source
-        </span>
-        <SourceBadge sourceType={disk.sourceType} />
-      </div>
-
-      <p className="mt-2 text-sm font-medium">
-        {disk.sourceType === 'SERVER'
-          ? 'Disque scanné par le serveur'
-          : 'Disque remonté par un agent utilisateur'}
-      </p>
-
-      {disk.sourceLabel ? (
-        <p className="mt-1 text-xs text-muted-foreground">{disk.sourceLabel}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function AgentInfoCard({ disk }: { disk: DashboardDisk }) {
-  if (disk.sourceType === 'SERVER') {
-    return (
-      <div className="rounded-xl border bg-muted/10 px-3 py-3">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Server className="h-3.5 w-3.5" />
-          Machine
-        </div>
-        <p className="mt-2 text-sm font-medium">Serveur local</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Scan exécuté directement côté serveur
+    <div className="flex items-start justify-between gap-3 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
         </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border bg-muted/10 px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Monitor className="h-3.5 w-3.5" />
-          Machine
-        </div>
-        <AgentStatusBadge status={disk.agentDevice?.status ?? 'OFFLINE'} />
+        <p className="mt-0.5 truncate text-sm font-medium">{value}</p>
+        {sub ? (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</p>
+        ) : null}
+        {error ? (
+          <p className="mt-1 break-all text-xs text-destructive">{error}</p>
+        ) : null}
       </div>
 
-      <p className="mt-2 text-sm font-medium">{getMachineLabel(disk)}</p>
-
-      <p className="mt-1 text-xs text-muted-foreground">
-        {disk.agentDevice?.userLabel
-          ? `Utilisateur : ${disk.agentDevice.userLabel}`
-          : disk.lastSeenAt
-            ? `Dernière activité : ${new Date(disk.lastSeenAt).toLocaleString('fr-FR')}`
-            : 'Agent sans activité récente'}
-      </p>
-    </div>
-  );
-}
-
-function AgentCommandInfoCard({ disk }: { disk: DashboardDisk }) {
-  if (!disk.latestAgentCommand) {
-    return (
-      <div className="rounded-xl border bg-muted/10 px-3 py-3">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Clock3 className="h-3.5 w-3.5" />
-          Commande agent
-        </div>
-        <p className="mt-2 text-sm font-medium">Aucune commande récente</p>
-      </div>
-    );
-  }
-
-  const command = disk.latestAgentCommand;
-
-  return (
-    <div className="rounded-xl border bg-muted/10 px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Clock3 className="h-3.5 w-3.5" />
-          Commande agent
-        </div>
-        <CommandStatusBadge status={command.status} />
-      </div>
-
-      <p className="mt-2 text-sm font-medium">
-        {getCommandTypeLabel(command.commandType)}
-      </p>
-
-      <p className="mt-1 text-xs text-muted-foreground">
-        Phase : {command.phase ?? '—'}
-      </p>
-
-      <p className="mt-1 text-xs text-muted-foreground">
-        Progression : {command.progressPercent ?? 0}%
-      </p>
-
-      {command.currentPath ? (
-        <p className="mt-1 break-all text-xs text-muted-foreground">
-          {command.currentPath}
-        </p>
-      ) : null}
-
-      {command.errorMessage ? (
-        <p className="mt-2 text-xs text-destructive">{command.errorMessage}</p>
-      ) : null}
+      {badge ? <div className="shrink-0">{badge}</div> : null}
     </div>
   );
 }
@@ -820,21 +794,18 @@ function StatCard({
   description: string;
 }) {
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardDescription>{title}</CardDescription>
-          <div className="rounded-xl bg-primary/10 p-2 text-primary">
-            {icon}
-          </div>
-        </div>
-        <CardTitle className="text-3xl">{value}</CardTitle>
-      </CardHeader>
-
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </CardContent>
-    </Card>
+    <div
+      className="flex items-center gap-3 rounded-xl border bg-background px-4 py-2.5 shadow-sm"
+      title={description}
+    >
+      <div className="shrink-0 rounded-lg bg-primary/10 p-2 text-primary">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xl font-semibold leading-none">{value}</p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">{title}</p>
+      </div>
+    </div>
   );
 }
 

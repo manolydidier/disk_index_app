@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   BellDot,
   ChevronDown,
-  Download,
   HardDrive,
   History,
   Info,
@@ -34,6 +33,7 @@ import { DiskTreeView } from '@/components/disks/disk-tree-view';
 import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
 import { ScanActionsModal } from '@/components/disks/scan-actions-modal';
+import { ExportCsvButton } from '@/components/disks/export-csv-button';
 
 // Force per-request rendering — this page's data (disk status, scan
 // history, activity log) must never be served from a build-time snapshot.
@@ -337,7 +337,7 @@ export default async function DiskDetailPage({
               value={disk.entries.length.toLocaleString('fr-FR')}
             />
             <InfoBlock
-              label="Alertes récentes"
+              label="Activités récentes"
               value={String(disk.activities.length)}
             />
           </AccordionSection>
@@ -352,13 +352,9 @@ export default async function DiskDetailPage({
               </CardDescription>
             </div>
 
-            <a
+            <ExportCsvButton
               href={`/api/disks/${disk.id}/export?type=entries`}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
-            >
-              <Download className="h-4 w-4" />
-              CSV
-            </a>
+            />
           </CardHeader>
 
           <CardContent className="pt-6">
@@ -378,13 +374,9 @@ export default async function DiskDetailPage({
               <CardDescription>Les 10 derniers scans de ce disque.</CardDescription>
             </div>
 
-            <a
+            <ExportCsvButton
               href={`/api/disks/${disk.id}/export?type=scans`}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
-            >
-              <Download className="h-4 w-4" />
-              CSV
-            </a>
+            />
           </CardHeader>
 
           <CardContent className="pt-6">
@@ -445,13 +437,9 @@ export default async function DiskDetailPage({
               <CardDescription>Les 20 derniers changements détectés.</CardDescription>
             </div>
 
-            <a
+            <ExportCsvButton
               href={`/api/disks/${disk.id}/export?type=activities`}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-medium hover:bg-muted"
-            >
-              <Download className="h-4 w-4" />
-              CSV
-            </a>
+            />
           </CardHeader>
 
           <CardContent className="pt-6">

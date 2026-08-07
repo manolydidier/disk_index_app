@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { List, type RowComponentProps } from 'react-window';
 import {
   ChevronDown,
   ChevronRight,
@@ -18,6 +19,15 @@ import type { TreeNode } from '@/types';
 type DiskTreeViewProps = {
   tree: TreeNode[];
 };
+
+type FlatRow = {
+  node: TreeNode;
+  depth: number;
+  isExpanded: boolean;
+};
+
+const ROW_HEIGHT = 48;
+const LIST_HEIGHT = 520;
 
 export function DiskTreeView({ tree }: DiskTreeViewProps) {
   const [query, setQuery] = useState('');
@@ -98,6 +108,10 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
   const totalVisibleNodes = useMemo(() => {
     return countNodes(filteredTree);
   }, [filteredTree]);
+
+  const flatRows = useMemo(() => {
+    return flattenTree(filteredTree, 0, expandedSet);
+  }, [filteredTree, expandedSet]);
 
   function toggleFolder(path: string) {
     setExpandedPaths((current) => {
@@ -199,22 +213,19 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
         </div>
 
         <div className="mt-4 rounded-xl border bg-muted/10 p-3">
-          {filteredTree.length === 0 ? (
+          {flatRows.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               Aucun résultat pour cette recherche.
             </div>
           ) : (
-            <ul className="space-y-1">
-              {filteredTree.map((node) => (
-                <TreeNodeItem
-                  key={node.path}
-                  node={node}
-                  depth={0}
-                  expandedSet={expandedSet}
-                  onToggle={toggleFolder}
-                />
-              ))}
-            </ul>
+            <List
+              rowComponent={TreeRow}
+              rowCount={flatRows.length}
+              rowHeight={ROW_HEIGHT}
+              rowProps={{ rows: flatRows, onToggle: toggleFolder }}
+              defaultHeight={LIST_HEIGHT}
+              style={{ height: LIST_HEIGHT }}
+            />
           )}
         </div>
       </div>
@@ -222,22 +233,17 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
   );
 }
 
-function TreeNodeItem({
-  node,
-  depth,
-  expandedSet,
-  onToggle
-}: {
-  node: TreeNode;
-  depth: number;
-  expandedSet: Set<string>;
+type TreeRowProps = {
+  rows: FlatRow[];
   onToggle: (path: string) => void;
-}) {
+};
+
+function TreeRow({ index, style, rows, onToggle }: RowComponentProps<TreeRowProps>) {
+  const { node, depth, isExpanded } = rows[index];
   const isFolder = node.type === 'folder';
-  const isExpanded = isFolder ? expandedSet.has(node.path) : false;
 
   return (
-    <li>
+    <div style={style}>
       <div
         className="group flex items-start gap-2 rounded-lg px-2 py-1.5 transition hover:bg-muted/50"
         style={{ paddingLeft: depth * 16 + 8 }}
@@ -266,28 +272,35 @@ function TreeNodeItem({
         )}
 
         <div className="min-w-0 flex-1">
-          <div className="break-all text-sm font-medium">{node.name}</div>
-          <div className="break-all text-xs text-muted-foreground">
+          <div className="truncate text-sm font-medium" title={node.name}>
+            {node.name}
+          </div>
+          <div className="truncate text-xs text-muted-foreground" title={node.path}>
             {node.path}
           </div>
         </div>
       </div>
-
-      {isFolder && isExpanded && node.children?.length ? (
-        <ul className="space-y-1">
-          {node.children.map((child) => (
-            <TreeNodeItem
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              expandedSet={expandedSet}
-              onToggle={onToggle}
-            />
-          ))}
-        </ul>
-      ) : null}
-    </li>
+    </div>
   );
+}
+
+function flattenTree(
+  nodes: TreeNode[],
+  depth: number,
+  expandedSet: Set<string>
+): FlatRow[] {
+  const rows: FlatRow[] = [];
+
+  for (const node of nodes) {
+    const isExpanded = node.type === 'folder' && expandedSet.has(node.path);
+    rows.push({ node, depth, isExpanded });
+
+    if (isExpanded && node.children?.length) {
+      rows.push(...flattenTree(node.children, depth + 1, expandedSet));
+    }
+  }
+
+  return rows;
 }
 
 function filterTree(nodes: TreeNode[], query: string): TreeNode[] {

@@ -47,6 +47,9 @@ function getActions(event: AutomationEvent) {
 export function AutomationMonitor() {
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [locallyHiddenIds, setLocallyHiddenIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   async function fetchEvents() {
     try {
@@ -109,7 +112,12 @@ export function AutomationMonitor() {
     }
   }
 
-  const visibleEvents = useMemo(() => events.slice(0, 3), [events]);
+  const activeEvents = useMemo(
+    () => events.filter((event) => !locallyHiddenIds.has(event.id)),
+    [events, locallyHiddenIds]
+  );
+  const visibleEvents = useMemo(() => activeEvents.slice(0, 3), [activeEvents]);
+  const hiddenCount = activeEvents.length - visibleEvents.length;
 
   if (visibleEvents.length === 0) {
     return null;
@@ -117,6 +125,13 @@ export function AutomationMonitor() {
 
   return (
     <div className="fixed bottom-4 right-4 z-[70] flex w-[380px] flex-col gap-3">
+      {hiddenCount > 0 ? (
+        <div className="self-end rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+          +{hiddenCount} autre{hiddenCount > 1 ? 's' : ''} notification
+          {hiddenCount > 1 ? 's' : ''} en attente
+        </div>
+      ) : null}
+
       {visibleEvents.map((event) => {
         const actions = getActions(event);
 
@@ -138,7 +153,15 @@ export function AutomationMonitor() {
                   variant="ghost"
                   size="sm"
                   className="h-8 px-2"
-                  onClick={() => void runAction(event.id, actions.secondary.action)}
+                  aria-label="Fermer cette notification"
+                  title="Fermer (n'applique aucune action)"
+                  onClick={() =>
+                    setLocallyHiddenIds((current) => {
+                      const next = new Set(current);
+                      next.add(event.id);
+                      return next;
+                    })
+                  }
                 >
                   <X className="h-4 w-4" />
                 </Button>

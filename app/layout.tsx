@@ -13,6 +13,8 @@ import { AuthProvider } from '@/components/providers/auth-provider';
 import { AuthActions } from '@/components/auth/auth-actions';
 import { NavLink, MobileIconLink } from '@/components/layout/nav-link';
 import { CommandPalette } from '@/components/layout/command-palette';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { ThemeProvider } from '@/components/providers/theme-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,8 +34,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr">
+    <html lang="fr" suppressHydrationWarning>
       <body className="min-h-screen bg-muted/30 text-foreground antialiased">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <AuthProvider>
           <div className="min-h-screen">
             <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur-md">
@@ -114,6 +117,8 @@ export default function RootLayout({
                 <div className="flex items-center gap-3">
                   <CommandPalette />
 
+                  <ThemeToggle />
+
                   <AuthActions />
 
                   <div className="flex items-center gap-2 md:hidden">
@@ -139,6 +144,8 @@ export default function RootLayout({
                     >
                       <Settings2 className="h-4 w-4" />
                     </MobileIconLink>
+
+                    <ThemeToggle />
                   </div>
                 </div>
               </div>
@@ -152,6 +159,7 @@ export default function RootLayout({
           <ActivityMonitor />
           <AutomationMonitor />
         </AuthProvider>
+        </ThemeProvider>
 
         <Toaster richColors position="top-right" closeButton />
       </body>

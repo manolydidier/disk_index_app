@@ -11,7 +11,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "agent:start": "tsx agent/index.ts"
+    "agent:start": "tsx agent/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -50,6 +52,7 @@
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.14",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.10"
   }
 }

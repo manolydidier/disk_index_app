@@ -47,7 +47,8 @@ export async function GET() {
         settings: {
           ...settings,
           ignoredRoots: asStringArray(settings.ignoredRoots),
-          ignoredPathPatterns: asStringArray(settings.ignoredPathPatterns)
+          ignoredPathPatterns: asStringArray(settings.ignoredPathPatterns),
+          notifyEmailRecipients: asStringArray(settings.notifyEmailRecipients)
         },
         disks: disks.map((disk) => ({
           id: disk.id,
@@ -135,7 +136,15 @@ export async function PUT(request: Request) {
         notificationCooldownSeconds: Number(
           settingsInput.notificationCooldownSeconds ?? 30
         ),
-        changeDebounceSeconds: Number(settingsInput.changeDebounceSeconds ?? 8)
+        changeDebounceSeconds: Number(settingsInput.changeDebounceSeconds ?? 8),
+        lowSpacePercentThreshold: Math.min(
+          90,
+          Math.max(1, Number(settingsInput.lowSpacePercentThreshold ?? 10))
+        ),
+        notifyEmailEnabled: Boolean(settingsInput.notifyEmailEnabled),
+        notifyEmailRecipients: Array.isArray(settingsInput.notifyEmailRecipients)
+          ? settingsInput.notifyEmailRecipients
+          : []
       }
     });
 
@@ -152,7 +161,12 @@ export async function PUT(request: Request) {
           muted: Boolean(pref.muted),
           ignoredPaths: Array.isArray(pref.ignoredPaths)
             ? pref.ignoredPaths
-            : []
+            : [],
+          scheduledScanEnabled: Boolean(pref.scheduledScanEnabled),
+          scheduledScanIntervalHours: Math.min(
+            168,
+            Math.max(1, Number(pref.scheduledScanIntervalHours ?? 24))
+          )
         },
         create: {
           diskId: pref.diskId,
@@ -163,7 +177,12 @@ export async function PUT(request: Request) {
           muted: Boolean(pref.muted),
           ignoredPaths: Array.isArray(pref.ignoredPaths)
             ? pref.ignoredPaths
-            : []
+            : [],
+          scheduledScanEnabled: Boolean(pref.scheduledScanEnabled),
+          scheduledScanIntervalHours: Math.min(
+            168,
+            Math.max(1, Number(pref.scheduledScanIntervalHours ?? 24))
+          )
         }
       });
     }

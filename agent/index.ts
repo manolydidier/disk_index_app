@@ -19,6 +19,8 @@ type DetectedDevice = {
   displayName: string;
   isRemovable: boolean;
   driveType: string | null;
+  totalBytes: number | null;
+  freeBytes: number | null;
 };
 
 type IndexedEntry = {
@@ -34,6 +36,8 @@ type PowerShellVolume = {
   DriveLetter?: string;
   FileSystemLabel?: string;
   DriveType?: string;
+  Size?: number;
+  SizeRemaining?: number;
 };
 
 type AgentCommand = {
@@ -211,7 +215,7 @@ function runPowerShell(command: string) {
 
 async function listWindowsVolumes(): Promise<DetectedDevice[]> {
   const command =
-    'Get-Volume | Select-Object DriveLetter,FileSystemLabel,DriveType | ConvertTo-Json -Compress';
+    'Get-Volume | Select-Object DriveLetter,FileSystemLabel,DriveType,Size,SizeRemaining | ConvertTo-Json -Compress';
 
   const raw = await runPowerShell(command);
   const parsed = JSON.parse(raw) as PowerShellVolume | PowerShellVolume[];
@@ -233,7 +237,10 @@ async function listWindowsVolumes(): Promise<DetectedDevice[]> {
           driveType.includes('removable') ||
           driveType.includes('usb') ||
           driveType.includes('cd'),
-        driveType: driveType || null
+        driveType: driveType || null,
+        totalBytes: typeof volume.Size === 'number' ? volume.Size : null,
+        freeBytes:
+          typeof volume.SizeRemaining === 'number' ? volume.SizeRemaining : null
       };
     });
 }
@@ -380,7 +387,9 @@ async function syncAvailableDisks(
           displayName: device.displayName,
           driveType: device.driveType,
           isRemovable: device.isRemovable,
-          isConnected: true
+          isConnected: true,
+          totalBytes: device.totalBytes,
+          freeBytes: device.freeBytes
         }))
       })
     }

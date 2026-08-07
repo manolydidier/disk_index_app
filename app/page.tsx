@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { getDiskDisplayLabel, getDiskDisplayTitle } from '@/lib/disk-label';
 import { resolveAgentDeviceStatus } from '@/lib/agent/device-status';
 import { DashboardViewSwitcher } from '@/components/dashboard/dashboard-view-switcher';
+import { diskAccessWhere, diskIdAccessWhere, getSessionAccessibleDiskIds } from '@/lib/disk-access';
 
 // Without this, Next.js prerenders this page as static at build time since
 // its Prisma calls aren't detected as a dynamic API — every disk toggle,
@@ -9,8 +10,11 @@ import { DashboardViewSwitcher } from '@/components/dashboard/dashboard-view-swi
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
+  const accessibleDiskIds = await getSessionAccessibleDiskIds();
+
   const [disks, stats] = await Promise.all([
     prisma.disk.findMany({
+      where: diskAccessWhere(accessibleDiskIds),
       include: {
         _count: {
           select: {
@@ -51,9 +55,13 @@ export default async function DashboardPage() {
       orderBy: { code: 'asc' }
     }),
     prisma.$transaction([
-      prisma.disk.count(),
-      prisma.fileEntry.count({ where: { deletedAt: null } }),
-      prisma.diskActivity.count({ where: { acknowledgedAt: null } })
+      prisma.disk.count({ where: diskAccessWhere(accessibleDiskIds) }),
+      prisma.fileEntry.count({
+        where: { deletedAt: null, ...diskIdAccessWhere(accessibleDiskIds) }
+      }),
+      prisma.diskActivity.count({
+        where: { acknowledgedAt: null, ...diskIdAccessWhere(accessibleDiskIds) }
+      })
     ])
   ]);
 
@@ -73,6 +81,8 @@ export default async function DashboardPage() {
       sourceLabel: disk.sourceLabel,
       remoteDiskKey: disk.remoteDiskKey,
       lastSeenAt: disk.lastSeenAt?.toISOString() ?? null,
+      totalBytes: disk.totalBytes?.toString() ?? null,
+      freeBytes: disk.freeBytes?.toString() ?? null,
       entriesCount: disk._count.entries,
       activitiesCount: disk._count.activities,
       lastScan: lastScan

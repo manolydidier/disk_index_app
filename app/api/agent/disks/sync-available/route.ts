@@ -12,6 +12,8 @@ type AvailableDiskInput = {
   driveType?: string | null;
   isRemovable?: boolean;
   isConnected?: boolean;
+  totalBytes?: number | null;
+  freeBytes?: number | null;
 };
 
 function normalizeDiskInput(disk: AvailableDiskInput) {
@@ -21,7 +23,15 @@ function normalizeDiskInput(disk: AvailableDiskInput) {
     displayName: String(disk.displayName ?? '').trim(),
     driveType: String(disk.driveType ?? '').trim() || null,
     isRemovable: Boolean(disk.isRemovable),
-    isConnected: disk.isConnected !== false
+    isConnected: disk.isConnected !== false,
+    totalBytes:
+      typeof disk.totalBytes === 'number' && Number.isFinite(disk.totalBytes)
+        ? BigInt(Math.trunc(disk.totalBytes))
+        : null,
+    freeBytes:
+      typeof disk.freeBytes === 'number' && Number.isFinite(disk.freeBytes)
+        ? BigInt(Math.trunc(disk.freeBytes))
+        : null
   };
 }
 
@@ -90,6 +100,17 @@ export async function POST(request: Request) {
             lastSeenAt: new Date()
           }
         });
+
+        if (disk.totalBytes !== null || disk.freeBytes !== null) {
+          await tx.disk.updateMany({
+            where: { agentDeviceId: agent.id, remoteDiskKey: disk.remoteDiskKey },
+            data: {
+              totalBytes: disk.totalBytes,
+              freeBytes: disk.freeBytes,
+              spaceCheckedAt: new Date()
+            }
+          });
+        }
       }
 
       const existing = await tx.agentAvailableDisk.findMany({

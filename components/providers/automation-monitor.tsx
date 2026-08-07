@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { BellRing, HardDrive, RefreshCw, X } from 'lucide-react';
+import { BellRing, Check, HardDrive, HardDriveDownload, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 type AutomationEvent = {
   id: string;
   diskId: string | null;
-  eventType: 'NEW_DISK_DETECTED' | 'DISK_CHANGED';
+  eventType: 'NEW_DISK_DETECTED' | 'DISK_CHANGED' | 'LOW_DISK_SPACE';
   title: string;
   message: string;
   payload: Record<string, unknown> | null;
@@ -31,6 +31,17 @@ function getActions(event: AutomationEvent) {
       primary: { action: 'update-now', label: 'Mettre à jour maintenant' },
       secondary: { action: 'later', label: 'Plus tard' },
       tertiary: { action: 'never-ask', label: 'Ne plus demander' }
+    };
+  }
+
+  if (event.eventType === 'LOW_DISK_SPACE') {
+    return {
+      primary: { action: 'ignore', label: 'Compris' },
+      secondary: null,
+      tertiary: {
+        action: 'mute-disk',
+        label: 'Désactiver les notifications'
+      }
     };
   }
 
@@ -142,6 +153,8 @@ export function AutomationMonitor() {
                 <span className="flex items-center gap-2">
                   {event.eventType === 'NEW_DISK_DETECTED' ? (
                     <HardDrive className="h-4 w-4" />
+                  ) : event.eventType === 'LOW_DISK_SPACE' ? (
+                    <HardDriveDownload className="h-4 w-4" />
                   ) : (
                     <BellRing className="h-4 w-4" />
                   )}
@@ -185,20 +198,26 @@ export function AutomationMonitor() {
                   onClick={() => void runAction(event.id, actions.primary.action)}
                   disabled={loadingAction === `${event.id}:${actions.primary.action}`}
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  {actions.primary.action === 'update-now' ? (
+                    <RefreshCw className="h-4 w-4" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
                   {actions.primary.label}
                 </Button>
 
                 <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => void runAction(event.id, actions.secondary.action)}
-                    disabled={loadingAction === `${event.id}:${actions.secondary.action}`}
-                  >
-                    {actions.secondary.label}
-                  </Button>
+                  {actions.secondary ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => void runAction(event.id, actions.secondary!.action)}
+                      disabled={loadingAction === `${event.id}:${actions.secondary!.action}`}
+                    >
+                      {actions.secondary.label}
+                    </Button>
+                  ) : null}
 
                   <Button
                     type="button"

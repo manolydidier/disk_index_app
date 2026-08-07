@@ -28,6 +28,10 @@ export function getFsPromises() {
     lstat: (...args: any[]) => Promise<any>;
     opendir: (...args: any[]) => Promise<any>;
     readdir: (...args: any[]) => Promise<any>;
+    statfs: (
+      path: string,
+      options?: { bigint?: boolean }
+    ) => Promise<{ blocks: bigint; bavail: bigint; bsize: bigint }>;
   };
 }
 

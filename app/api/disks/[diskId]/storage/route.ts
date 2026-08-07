@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSession } from '@/lib/require-session';
+import { canAccessDisk, getAccessibleDiskIds } from '@/lib/disk-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,15 @@ export async function GET(
   _: Request,
   context: { params: Promise<{ diskId: string }> }
 ) {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
 
   const { diskId } = await context.params;
+
+  const accessibleDiskIds = await getAccessibleDiskIds(session.user);
+  if (!canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: 'Disque introuvable.' }, { status: 404 });
+  }
 
   const disk = await prisma.disk.findUnique({
     where: { id: diskId },

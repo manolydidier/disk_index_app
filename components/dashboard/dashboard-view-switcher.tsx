@@ -43,6 +43,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
+import { formatBytes } from '@/lib/utils';
 
 type DashboardDisk = {
   id: string;
@@ -56,6 +57,8 @@ type DashboardDisk = {
   sourceLabel: string | null;
   remoteDiskKey: string | null;
   lastSeenAt: string | null;
+  totalBytes: string | null;
+  freeBytes: string | null;
   entriesCount: number;
   activitiesCount: number;
   lastScan: {
@@ -373,6 +376,8 @@ function DiskCardsView({ disks }: { disks: DashboardDisk[] }) {
               />
             </div>
 
+            {disk.totalBytes ? <CapacityBar totalBytes={disk.totalBytes} freeBytes={disk.freeBytes} /> : null}
+
             <div className="divide-y rounded-xl border">
               <InfoRow
                 label="Source"
@@ -484,6 +489,7 @@ function DiskTableView({ disks }: { disks: DashboardDisk[] }) {
             <TableHead>Commande</TableHead>
             <TableHead>Chemin</TableHead>
             <TableHead>Statut</TableHead>
+            <TableHead>Espace</TableHead>
             <TableHead>Entrées</TableHead>
             <TableHead>Dernier scan</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -534,6 +540,10 @@ function DiskTableView({ disks }: { disks: DashboardDisk[] }) {
 
               <TableCell>
                 <StatusBadge status={disk.status} />
+              </TableCell>
+
+              <TableCell>
+                <CapacityCell totalBytes={disk.totalBytes} freeBytes={disk.freeBytes} />
               </TableCell>
 
               <TableCell>{disk.entriesCount}</TableCell>
@@ -621,6 +631,66 @@ function ViewDiskButton({ diskId }: { diskId: string }) {
         </>
       )}
     </Button>
+  );
+}
+
+function CapacityCell({
+  totalBytes,
+  freeBytes
+}: {
+  totalBytes: string | null;
+  freeBytes: string | null;
+}) {
+  if (!totalBytes || !freeBytes) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  const total = Number(totalBytes);
+  const free = Number(freeBytes);
+  const freePercent = total > 0 ? (free / total) * 100 : 0;
+  const isLow = freePercent <= 10;
+
+  return (
+    <span className={`text-xs ${isLow ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>
+      {formatBytes(free)} libre ({freePercent.toFixed(0)}%)
+    </span>
+  );
+}
+
+function CapacityBar({
+  totalBytes,
+  freeBytes
+}: {
+  totalBytes: string;
+  freeBytes: string | null;
+}) {
+  const total = Number(totalBytes);
+  const free = freeBytes ? Number(freeBytes) : null;
+
+  if (!total || free === null) return null;
+
+  const usedPercent = Math.min(100, Math.max(0, ((total - free) / total) * 100));
+  const freePercent = 100 - usedPercent;
+  const isLow = freePercent <= 10;
+  const isWarning = !isLow && freePercent <= 20;
+
+  return (
+    <div className="rounded-xl border px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="font-medium">Espace disque</span>
+        <span className={isLow ? 'font-medium text-destructive' : 'text-muted-foreground'}>
+          {formatBytes(free)} libre sur {formatBytes(total)}
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full ${
+            isLow ? 'bg-destructive' : isWarning ? 'bg-amber-500' : 'bg-primary'
+          }`}
+          style={{ width: `${Math.max(usedPercent, 1.5)}%` }}
+        />
+      </div>
+    </div>
   );
 }
 

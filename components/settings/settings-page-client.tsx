@@ -60,6 +60,9 @@ type AutomationSettingsPayload = {
     ignoredPathPatterns: string[];
     notificationCooldownSeconds: number;
     changeDebounceSeconds: number;
+    lowSpacePercentThreshold: number;
+    notifyEmailEnabled: boolean;
+    notifyEmailRecipients: string[];
   };
   disks: Array<{
     id: string;
@@ -74,6 +77,8 @@ type AutomationSettingsPayload = {
       autoUpdateWithoutPrompt: boolean;
       muted: boolean;
       ignoredPaths: string[];
+      scheduledScanEnabled: boolean;
+      scheduledScanIntervalHours: number;
     };
   }>;
 };
@@ -303,6 +308,8 @@ function AutomationSettingsPanel() {
               autoUpdateWithoutPrompt: false,
               muted: false,
               ignoredPaths: [],
+              scheduledScanEnabled: false,
+              scheduledScanIntervalHours: 24,
             }),
           })),
           resetNotificationPreferences,
@@ -362,6 +369,8 @@ function AutomationSettingsPanel() {
             autoUpdateWithoutPrompt: false,
             muted: false,
             ignoredPaths: [],
+            scheduledScanEnabled: false,
+            scheduledScanIntervalHours: 24,
           };
 
           return {
@@ -467,6 +476,59 @@ function AutomationSettingsPanel() {
               }
             />
           </SettingField>
+
+          <SettingField
+            label="Seuil d'espace disque faible"
+            hint="Alerte quand l'espace libre passe sous ce pourcentage."
+          >
+            <input
+              className="h-9 w-28 rounded-md border bg-background px-3 text-sm"
+              type="number"
+              min={1}
+              max={90}
+              value={data.settings.lowSpacePercentThreshold}
+              onChange={(e) =>
+                updateGlobal(
+                  "lowSpacePercentThreshold",
+                  Math.min(90, Math.max(1, Number(e.target.value) || 10))
+                )
+              }
+            />
+          </SettingField>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Notifications email"
+        description="Envoie aussi les alertes importantes par email."
+      >
+        <div className="space-y-4">
+          <SettingToggle
+            label="Activer les notifications email"
+            description="Nécessite un serveur SMTP configuré côté serveur (SMTP_HOST, SMTP_USER, SMTP_PASS)."
+            checked={data.settings.notifyEmailEnabled}
+            onChange={(checked) => updateGlobal("notifyEmailEnabled", checked)}
+          />
+
+          <SettingField
+            label="Destinataires"
+            hint="Une adresse email par ligne."
+          >
+            <textarea
+              className="min-h-[90px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+              value={data.settings.notifyEmailRecipients.join("\n")}
+              placeholder="admin@exemple.com"
+              onChange={(e) =>
+                updateGlobal(
+                  "notifyEmailRecipients",
+                  e.target.value
+                    .split("\n")
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                )
+              }
+            />
+          </SettingField>
         </div>
       </SettingsSection>
 
@@ -529,6 +591,8 @@ function AutomationSettingsPanel() {
                 autoUpdateWithoutPrompt: false,
                 muted: false,
                 ignoredPaths: [],
+                scheduledScanEnabled: false,
+                scheduledScanIntervalHours: 24,
               };
 
               return (
@@ -608,7 +672,44 @@ function AutomationSettingsPanel() {
                           updateDiskPreference(disk.id, "muted", checked)
                         }
                       />
+
+                      <SettingToggle
+                        label="Scan complet planifié"
+                        checked={pref.scheduledScanEnabled}
+                        onChange={(checked) =>
+                          updateDiskPreference(
+                            disk.id,
+                            "scheduledScanEnabled",
+                            checked
+                          )
+                        }
+                      />
                     </div>
+
+                    {pref.scheduledScanEnabled ? (
+                      <div className="mt-4">
+                        <SettingField label="Fréquence du scan planifié (heures)">
+                          <input
+                            type="number"
+                            min={1}
+                            max={168}
+                            className="h-9 w-32 rounded-md border bg-background px-3 text-sm"
+                            value={pref.scheduledScanIntervalHours}
+                            onChange={(e) =>
+                              updateDiskPreference(
+                                disk.id,
+                                "scheduledScanIntervalHours",
+                                Math.min(168, Math.max(1, Number(e.target.value) || 24))
+                              )
+                            }
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Un scan complet automatique s’exécute en filet de sécurité,
+                            en plus de la détection en direct.
+                          </p>
+                        </SettingField>
+                      </div>
+                    ) : null}
 
                     <div className="mt-4">
                       <SettingField label="Chemins ignorés pour ce disque">

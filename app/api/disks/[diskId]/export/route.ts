@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/lib/auth-options';
+import { canAccessDisk, getAccessibleDiskIds } from '@/lib/disk-access';
 import { buildCsv } from '@/lib/csv';
 
 export const runtime = 'nodejs';
@@ -34,6 +35,15 @@ export async function GET(
   }
 
   const { diskId } = await context.params;
+
+  const accessibleDiskIds = await getAccessibleDiskIds({
+    id: session.user.id,
+    role: session.user.role
+  });
+  if (!canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: 'Disque introuvable.' }, { status: 404 });
+  }
+
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get('type') ?? 'scans') as ExportType;
 

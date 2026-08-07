@@ -41,6 +41,7 @@ enum ActivityType {
 enum AutomationEventType {
   NEW_DISK_DETECTED
   DISK_CHANGED
+  LOW_DISK_SPACE
 }
 
 enum AutomationActionState {
@@ -85,6 +86,10 @@ model Disk {
   lastSeenAt       DateTime?
   agentDevice      AgentDevice?   @relation(fields: [agentDeviceId], references: [id], onDelete: SetNull)
 
+  totalBytes       BigInt?
+  freeBytes        BigInt?
+  spaceCheckedAt   DateTime?
+
 agentCommands AgentCommand[]
   entries          FileEntry[]
   scanJobs         ScanJob[]
@@ -92,6 +97,7 @@ agentCommands AgentCommand[]
 
   automationPreference DiskAutomationPreference?
   automationEvents     AutomationEvent[]
+  accessGrants         DiskAccess[]
 
   @@unique([agentDeviceId, remoteDiskKey])
   @@index([status])
@@ -186,6 +192,9 @@ model AutomationSettings {
   ignoredPathPatterns         Json?
   notificationCooldownSeconds Int      @default(30)
   changeDebounceSeconds       Int      @default(8)
+  lowSpacePercentThreshold    Int      @default(10)
+  notifyEmailEnabled          Boolean  @default(false)
+  notifyEmailRecipients       Json?
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 }
@@ -200,6 +209,9 @@ model DiskAutomationPreference {
   muted                   Boolean  @default(false)
   ignoredPaths            Json?
   lastPromptAt            DateTime?
+  scheduledScanEnabled       Boolean  @default(false)
+  scheduledScanIntervalHours Int      @default(24)
+  lastScheduledScanAt        DateTime?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -330,4 +342,19 @@ model User {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  diskAccess   DiskAccess[]
+}
+
+model DiskAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  diskId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disk      Disk     @relation(fields: [diskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, diskId])
+  @@index([diskId])
 }

@@ -14,6 +14,7 @@ import {
   Monitor,
   ScanSearch,
   Server,
+  ShieldCheck,
   Wifi,
   WifiOff
 } from 'lucide-react';
@@ -34,6 +35,11 @@ import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
 import { ScanActionsModal } from '@/components/disks/scan-actions-modal';
 import { ExportCsvButton } from '@/components/disks/export-csv-button';
+import { DiskAccessPanel } from '@/components/disks/disk-access-panel';
+import { canAccessDisk, getSessionAccessibleDiskIds } from '@/lib/disk-access';
+import { formatBytes } from '@/lib/utils';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-options';
 
 // Force per-request rendering — this page's data (disk status, scan
 // history, activity log) must never be served from a build-time snapshot.
@@ -57,6 +63,12 @@ export default async function DiskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  const accessibleDiskIds = await getSessionAccessibleDiskIds();
+  if (!canAccessDisk(accessibleDiskIds, id)) notFound();
+
+  const session = await getServerSession(authOptions);
+  const isAdmin = session?.user?.role === 'ADMIN';
 
   const disk = await prisma.disk.findUnique({
     where: { id },
@@ -304,6 +316,16 @@ export default async function DiskDetailPage({
             )}
           </AccordionSection>
 
+          {isAdmin ? (
+            <AccordionSection
+              icon={<ShieldCheck className="h-4 w-4" />}
+              title="Accès"
+              description="Utilisateurs autorisés à voir ce disque."
+            >
+              <DiskAccessPanel diskId={disk.id} />
+            </AccordionSection>
+          ) : null}
+
           <AccordionSection
             icon={<Activity className="h-4 w-4" />}
             title="Résumé"
@@ -340,6 +362,16 @@ export default async function DiskDetailPage({
               label="Activités récentes"
               value={String(disk.activities.length)}
             />
+            {disk.totalBytes ? (
+              <InfoBlock
+                label="Espace disque"
+                value={
+                  disk.freeBytes
+                    ? `${formatBytes(disk.freeBytes)} libre sur ${formatBytes(disk.totalBytes)}`
+                    : formatBytes(disk.totalBytes)
+                }
+              />
+            ) : null}
           </AccordionSection>
         </aside>
 

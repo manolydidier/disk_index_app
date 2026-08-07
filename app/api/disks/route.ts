@@ -5,6 +5,7 @@ import { generateNextDiskCode } from '@/lib/disk-code';
 import { diskCreateSchema } from '@/lib/validators';
 import { normalizeDiskRootPath } from '@/lib/root-path';
 import { requireSession } from '@/lib/require-session';
+import { diskAccessWhere, getAccessibleDiskIds } from '@/lib/disk-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,10 +19,13 @@ function jsonSafe<T>(value: T): T {
 }
 
 export async function GET() {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
 
+  const accessibleDiskIds = await getAccessibleDiskIds(session.user);
+
   const disks = await prisma.disk.findMany({
+    where: diskAccessWhere(accessibleDiskIds),
     orderBy: { code: 'asc' },
     include: {
       _count: {

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { startDiskScan } from "@/lib/scanner";
 import { scanRequestSchema } from "@/lib/validators";
 import { authOptions } from "@/lib/auth-options";
+import { canAccessDisk, getAccessibleDiskIds } from "@/lib/disk-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,14 @@ export async function POST(
   }
 
   const { diskId } = await context.params;
+
+  const accessibleDiskIds = await getAccessibleDiskIds({
+    id: session.user.id,
+    role: session.user.role
+  });
+  if (!canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: "Disque introuvable." }, { status: 404 });
+  }
 
   const payload = await request.json().catch(() => ({}));
   const parsed = scanRequestSchema.safeParse(payload);

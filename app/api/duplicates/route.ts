@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSession } from '@/lib/require-session';
+import { canAccessDisk, diskIdAccessWhere, getAccessibleDiskIds } from '@/lib/disk-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,11 +17,17 @@ function jsonSafe<T>(value: T): T {
 const MAX_GROUPS = 50;
 
 export async function GET(request: Request) {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
+
+  const accessibleDiskIds = await getAccessibleDiskIds(session.user);
 
   const { searchParams } = new URL(request.url);
   const diskId = searchParams.get('diskId')?.trim() ?? '';
+
+  if (diskId && !canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: 'Accès refusé à ce disque.' }, { status: 403 });
+  }
 
   // Files are matched by identical name + size — the scanner does not compute
   // a content hash, so this is a heuristic ("probable" duplicates), not a
@@ -31,7 +38,7 @@ export async function GET(request: Request) {
       entryType: 'FILE',
       deletedAt: null,
       size: { gt: 0 },
-      ...(diskId ? { diskId } : {})
+      ...(diskId ? { diskId } : diskIdAccessWhere(accessibleDiskIds))
     },
     _count: { _all: true },
     having: {
@@ -59,7 +66,7 @@ export async function GET(request: Request) {
     where: {
       entryType: 'FILE',
       deletedAt: null,
-      ...(diskId ? { diskId } : {}),
+      ...(diskId ? { diskId } : diskIdAccessWhere(accessibleDiskIds)),
       OR: ranked.map((group) => ({ name: group.name, size: group.size }))
     },
     select: {

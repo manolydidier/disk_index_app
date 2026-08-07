@@ -9,6 +9,8 @@ import {
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { startDiskScan } from '@/lib/scanner';
+import { queueAgentScanCommand } from '@/lib/agent/request-scan';
+import { sendMail } from '@/lib/email';
 import {
   findDiskByRootPathCaseInsensitive,
   generateNextDiskCode
@@ -23,7 +25,7 @@ import {
   getPath
 } from '@/lib/server/node-runtime';
 
-const { access, readdir } = getFsPromises();
+const { access, readdir, statfs } = getFsPromises();
 const { watch } = getFs();
 const path = getPath();
 
@@ -43,6 +45,9 @@ type AutomationSettingsSnapshot = {
   ignoredPathPatterns: string[];
   notificationCooldownSeconds: number;
   changeDebounceSeconds: number;
+  lowSpacePercentThreshold: number;
+  notifyEmailEnabled: boolean;
+  notifyEmailRecipients: string[];
 };
 
 type DiskPreferenceSnapshot = {
@@ -66,6 +71,8 @@ const DEFAULT_SETTINGS_ID = 1;
 const STALE_JOB_MS = 10 * 60 * 1000;
 const DEVICE_POLL_MS = 10_000;
 const WATCHER_REFRESH_MS = 15_000;
+const CAPACITY_CHECK_MS = 5 * 60_000;
+const SCHEDULED_SCAN_CHECK_MS = 10 * 60_000;
 
 let unhandledHooksRegistered = false;
 
@@ -181,7 +188,10 @@ async function getSettingsSnapshot(): Promise<AutomationSettingsSnapshot> {
     ignoredRoots: asStringArray(settings.ignoredRoots),
     ignoredPathPatterns: asStringArray(settings.ignoredPathPatterns),
     notificationCooldownSeconds: settings.notificationCooldownSeconds,
-    changeDebounceSeconds: settings.changeDebounceSeconds
+    changeDebounceSeconds: settings.changeDebounceSeconds,
+    lowSpacePercentThreshold: settings.lowSpacePercentThreshold,
+    notifyEmailEnabled: settings.notifyEmailEnabled,
+    notifyEmailRecipients: asStringArray(settings.notifyEmailRecipients)
   };
 }
 
@@ -244,6 +254,8 @@ class AutomationDaemon {
   private changeBuffers = new Map<string, BufferedChange>();
   private devicePollTimer: NodeJS.Timeout | null = null;
   private watcherRefreshTimer: NodeJS.Timeout | null = null;
+  private capacityCheckTimer: NodeJS.Timeout | null = null;
+  private scheduledScanTimer: NodeJS.Timeout | null = null;
 
   async start() {
     if (this.started) return;
@@ -272,6 +284,26 @@ class AutomationDaemon {
       });
     }, WATCHER_REFRESH_MS);
 
+    void this.checkDiskCapacity().catch((error) => {
+      console.error('[AUTOMATION] checkDiskCapacity initial error:', error);
+    });
+
+    this.capacityCheckTimer = setInterval(() => {
+      void this.checkDiskCapacity().catch((error) => {
+        console.error('[AUTOMATION] checkDiskCapacity error:', error);
+      });
+    }, CAPACITY_CHECK_MS);
+
+    void this.runScheduledScans().catch((error) => {
+      console.error('[AUTOMATION] runScheduledScans initial error:', error);
+    });
+
+    this.scheduledScanTimer = setInterval(() => {
+      void this.runScheduledScans().catch((error) => {
+        console.error('[AUTOMATION] runScheduledScans error:', error);
+      });
+    }, SCHEDULED_SCAN_CHECK_MS);
+
     console.log('[AUTOMATION] daemon démarré');
   }
 
@@ -296,9 +328,13 @@ class AutomationDaemon {
 
     if (this.devicePollTimer) clearInterval(this.devicePollTimer);
     if (this.watcherRefreshTimer) clearInterval(this.watcherRefreshTimer);
+    if (this.capacityCheckTimer) clearInterval(this.capacityCheckTimer);
+    if (this.scheduledScanTimer) clearInterval(this.scheduledScanTimer);
 
     this.devicePollTimer = null;
     this.watcherRefreshTimer = null;
+    this.capacityCheckTimer = null;
+    this.scheduledScanTimer = null;
     this.started = false;
   }
 
@@ -521,6 +557,114 @@ class AutomationDaemon {
           where: { id: disk.id },
           data: { status: DiskStatus.ACTIVE }
         });
+      }
+    }
+  }
+
+  private async checkDiskCapacity() {
+    const settings = await getSettingsSnapshot();
+
+    const disks = await prisma.disk.findMany({
+      where: {
+        isEnabled: true,
+        sourceType: 'SERVER',
+        status: { not: DiskStatus.DISCONNECTED }
+      },
+      select: { id: true, name: true, rootPath: true }
+    });
+
+    for (const disk of disks) {
+      let stats: { blocks: bigint; bavail: bigint; bsize: bigint };
+
+      try {
+        stats = await statfs(disk.rootPath, { bigint: true });
+      } catch (error) {
+        if (isIgnorableFsError(error)) continue;
+        console.warn(
+          `[AUTOMATION] statfs impossible pour ${disk.rootPath}:`,
+          error instanceof Error ? error.message : error
+        );
+        continue;
+      }
+
+      const totalBytes = stats.blocks * stats.bsize;
+      const freeBytes = stats.bavail * stats.bsize;
+
+      await prisma.disk.update({
+        where: { id: disk.id },
+        data: { totalBytes, freeBytes, spaceCheckedAt: new Date() }
+      });
+
+      if (totalBytes <= BigInt(0)) continue;
+
+      const freePercent = Number((freeBytes * BigInt(1000)) / totalBytes) / 10;
+
+      if (freePercent > settings.lowSpacePercentThreshold) continue;
+
+      const created = await this.createEventIfAllowed({
+        diskId: disk.id,
+        eventType: AutomationEventType.LOW_DISK_SPACE,
+        title: `Espace disque faible : ${disk.name}`,
+        message: `Il reste seulement ${freePercent.toFixed(1)} % d’espace libre sur ${disk.name}.`,
+        payload: { freePercent, totalBytes: totalBytes.toString(), freeBytes: freeBytes.toString() },
+        dedupeKey: `disk:${disk.id}:low-space`,
+        cooldownSeconds: Math.max(settings.notificationCooldownSeconds, 6 * 3600),
+        updatePromptTimestampForDiskId: null
+      });
+
+      if (created && settings.showSystemNotifications) {
+        await sendSystemNotification(
+          `Espace disque faible : ${disk.name}`,
+          `Il reste ${freePercent.toFixed(1)} % d’espace libre.`
+        );
+      }
+    }
+  }
+
+  private async runScheduledScans() {
+    const preferences = await prisma.diskAutomationPreference.findMany({
+      where: {
+        scheduledScanEnabled: true,
+        disk: { isEnabled: true }
+      },
+      include: { disk: true }
+    });
+
+    const now = Date.now();
+
+    for (const pref of preferences) {
+      const disk = pref.disk;
+      if (!disk || disk.status === DiskStatus.DISCONNECTED) continue;
+
+      const intervalMs = Math.max(1, pref.scheduledScanIntervalHours) * 3_600_000;
+      const lastRun = pref.lastScheduledScanAt?.getTime() ?? 0;
+
+      if (now - lastRun < intervalMs) continue;
+
+      try {
+        if (disk.sourceType === 'SERVER') {
+          await this.markStaleRunningJobsFailed(disk.id);
+          await startDiskScan(disk.id, ScanType.FULL);
+        } else {
+          const result = await queueAgentScanCommand(disk.id, 'FULL');
+          if (!result.success) {
+            console.warn(
+              `[AUTOMATION] scan planifié impossible pour ${disk.name}:`,
+              result.error
+            );
+            continue;
+          }
+        }
+
+        await prisma.diskAutomationPreference.update({
+          where: { diskId: disk.id },
+          data: { lastScheduledScanAt: new Date() }
+        });
+      } catch (error) {
+        console.error(
+          `[AUTOMATION] échec du scan planifié pour ${disk.name}:`,
+          error instanceof Error ? error.message : error
+        );
       }
     }
   }
@@ -911,6 +1055,17 @@ class AutomationDaemon {
           throw error;
         }
       }
+    }
+
+    const settings = await getSettingsSnapshot();
+    if (settings.notifyEmailEnabled && settings.notifyEmailRecipients.length > 0) {
+      void sendMail({
+        to: settings.notifyEmailRecipients,
+        subject: input.title,
+        text: input.message
+      }).catch((error) => {
+        console.error('[AUTOMATION] envoi email échoué:', error);
+      });
     }
 
     return event;

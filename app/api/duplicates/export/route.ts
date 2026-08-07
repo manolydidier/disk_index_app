@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSession } from '@/lib/require-session';
+import { canAccessDisk, diskIdAccessWhere, getAccessibleDiskIds } from '@/lib/disk-access';
 import { buildCsv } from '@/lib/csv';
 
 export const runtime = 'nodejs';
@@ -9,11 +10,17 @@ export const dynamic = 'force-dynamic';
 const MAX_GROUPS = 50;
 
 export async function GET(request: Request) {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
+
+  const accessibleDiskIds = await getAccessibleDiskIds(session.user);
 
   const { searchParams } = new URL(request.url);
   const diskId = searchParams.get('diskId')?.trim() ?? '';
+
+  if (diskId && !canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: 'Accès refusé à ce disque.' }, { status: 403 });
+  }
 
   const groups = await prisma.fileEntry.groupBy({
     by: ['name', 'size'],
@@ -21,7 +28,7 @@ export async function GET(request: Request) {
       entryType: 'FILE',
       deletedAt: null,
       size: { gt: 0 },
-      ...(diskId ? { diskId } : {})
+      ...(diskId ? { diskId } : diskIdAccessWhere(accessibleDiskIds))
     },
     _count: { _all: true },
     having: { id: { _count: { gt: 1 } } },
@@ -43,7 +50,7 @@ export async function GET(request: Request) {
         where: {
           entryType: 'FILE',
           deletedAt: null,
-          ...(diskId ? { diskId } : {}),
+          ...(diskId ? { diskId } : diskIdAccessWhere(accessibleDiskIds)),
           OR: ranked.map((group) => ({ name: group.name, size: group.size }))
         },
         select: {

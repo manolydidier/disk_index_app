@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSession } from '@/lib/require-session';
+import { getAccessibleDiskIds } from '@/lib/disk-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,13 +15,18 @@ function jsonSafe<T>(value: T): T {
 }
 
 export async function GET() {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
 
   try {
+    const accessibleDiskIds = await getAccessibleDiskIds(session.user);
+
     const events = await prisma.automationEvent.findMany({
       where: {
-        isDismissed: false
+        isDismissed: false,
+        ...(accessibleDiskIds === null
+          ? {}
+          : { OR: [{ diskId: null }, { diskId: { in: accessibleDiskIds } }] })
       },
       orderBy: { createdAt: 'desc' },
       take: 10,

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getDriveLetter } from '@/lib/disk-label';
 import { requireSession } from '@/lib/require-session';
+import { canAccessDisk, diskIdAccessWhere, getAccessibleDiskIds } from '@/lib/disk-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,12 +43,18 @@ function extractAbsolutePath(
 }
 
 export async function GET(request: Request) {
-  const { unauthorized } = await requireSession();
+  const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
+
+  const accessibleDiskIds = await getAccessibleDiskIds(session.user);
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q')?.trim() ?? '';
   const diskId = searchParams.get('diskId')?.trim() ?? '';
+
+  if (diskId && !canAccessDisk(accessibleDiskIds, diskId)) {
+    return NextResponse.json({ error: 'Accès refusé à ce disque.' }, { status: 403 });
+  }
   const extensionFilter = searchParams.get('extension')?.trim().replace(/^\./, '').toLowerCase() ?? '';
   const entryTypeFilter = searchParams.get('entryType')?.trim().toUpperCase() ?? '';
   const sizeMinRaw = searchParams.get('sizeMin')?.trim() ?? '';
@@ -74,7 +81,7 @@ export async function GET(request: Request) {
   const results = await prisma.fileEntry.findMany({
     where: {
       deletedAt: null,
-      ...(diskId ? { diskId } : {}),
+      ...(diskId ? { diskId } : diskIdAccessWhere(accessibleDiskIds)),
       ...(extensionFilter ? { extension: extensionFilter } : {}),
       ...(entryTypeFilter === 'FILE' || entryTypeFilter === 'FOLDER'
         ? { entryType: entryTypeFilter }

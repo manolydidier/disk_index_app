@@ -207,6 +207,50 @@ npm run dev
 
 ---
 
+## Notifications email (SMTP)
+
+L'application peut envoyer par email les mêmes alertes que les notifications in-app (nouveau disque détecté, changements, espace disque faible).
+
+### Configuration recommandée : via l'interface
+
+Va dans **`/settings/automation`** → section **"Notifications email"**. Un administrateur peut y renseigner le serveur SMTP, l'utilisateur, le mot de passe, l'adresse d'expédition et la liste des destinataires, puis cliquer sur **"Enregistrer"**.
+
+Cette configuration est stockée dans la base de données (table `AutomationSettings`), pas dans un fichier — elle est donc modifiable à chaud, sans redémarrer le serveur ni éditer `.env`. Le mot de passe n'est jamais renvoyé au navigateur après l'enregistrement (l'API ne renvoie qu'un booléen indiquant qu'il est configuré) ; le champ reste vide tant que tu ne le changes pas explicitement.
+
+Un bouton **"Tester l'envoi"** permet de vérifier immédiatement que les identifiants fonctionnent, avant même d'avoir cliqué sur "Enregistrer".
+
+### Configurer un compte Gmail
+
+Gmail refuse les connexions SMTP avec ton mot de passe habituel — il faut un **mot de passe d'application** :
+
+1. Active la validation en deux étapes sur le compte Google : https://myaccount.google.com/security
+2. Va sur https://myaccount.google.com/apppasswords, choisis un nom (ex. « Disk Indexer ») et génère le mot de passe (16 caractères, sans espaces).
+3. Dans `/settings/automation`, renseigne :
+   - **Serveur SMTP** : `smtp.gmail.com`
+   - **Port** : `587`
+   - **Utilisateur SMTP** : ton adresse Gmail complète (`toncompte@gmail.com`)
+   - **Mot de passe SMTP** : le mot de passe d'application généré à l'étape 2 (pas ton mot de passe Google)
+   - **Adresse d'expédition** : laisse vide pour utiliser l'utilisateur SMTP, ou renseigne une autre adresse si tu utilises un alias
+4. Ajoute au moins un destinataire, active le toggle, teste l'envoi, puis enregistre.
+
+Gmail limite le volume d'envoi via SMTP (environ 500 emails/jour pour un compte standard) — largement suffisant pour des alertes ponctuelles, mais à garder en tête si tu génères beaucoup de disques/changements.
+
+### Configuration alternative : via `.env`
+
+Si tu préfères une configuration au niveau serveur (ou comme valeur par défaut avant qu'un admin ne passe par l'interface), les mêmes réglages peuvent être définis dans `.env` :
+
+```bash
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_USER="toncompte@gmail.com"
+SMTP_PASS="le-mot-de-passe-d-application-16-caracteres"
+SMTP_FROM="toncompte@gmail.com"
+```
+
+**La configuration enregistrée via l'interface (base de données) est toujours prioritaire** sur ces variables d'environnement — `.env` ne sert que de valeur de repli si rien n'a encore été configuré via `/settings/automation`.
+
+---
+
 ## Architecture logicielle
 
 ### Couche UI

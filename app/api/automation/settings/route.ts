@@ -42,10 +42,13 @@ export async function GET() {
       }
     });
 
+    const { smtpPassword, ...settingsWithoutPassword } = settings;
+
     return NextResponse.json(
       jsonSafe({
         settings: {
-          ...settings,
+          ...settingsWithoutPassword,
+          smtpPasswordSet: Boolean(smtpPassword),
           ignoredRoots: asStringArray(settings.ignoredRoots),
           ignoredPathPatterns: asStringArray(settings.ignoredPathPatterns),
           notifyEmailRecipients: asStringArray(settings.notifyEmailRecipients)
@@ -144,7 +147,21 @@ export async function PUT(request: Request) {
         notifyEmailEnabled: Boolean(settingsInput.notifyEmailEnabled),
         notifyEmailRecipients: Array.isArray(settingsInput.notifyEmailRecipients)
           ? settingsInput.notifyEmailRecipients
-          : []
+          : [],
+        smtpHost: String(settingsInput.smtpHost ?? '').trim() || null,
+        smtpPort: settingsInput.smtpPort
+          ? Math.min(65535, Math.max(1, Number(settingsInput.smtpPort)))
+          : null,
+        smtpUser: String(settingsInput.smtpUser ?? '').trim() || null,
+        smtpFrom: String(settingsInput.smtpFrom ?? '').trim() || null,
+        // Only overwrite the stored password when a new one is actually
+        // provided — an empty field on save means "keep the current one",
+        // not "clear it". Use smtpClearPassword to explicitly remove it.
+        ...(settingsInput.smtpClearPassword
+          ? { smtpPassword: null }
+          : String(settingsInput.smtpPassword ?? '').trim()
+            ? { smtpPassword: String(settingsInput.smtpPassword).trim() }
+            : {})
       }
     });
 

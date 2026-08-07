@@ -195,6 +195,11 @@ model AutomationSettings {
   lowSpacePercentThreshold    Int      @default(10)
   notifyEmailEnabled          Boolean  @default(false)
   notifyEmailRecipients       Json?
+  smtpHost                    String?
+  smtpPort                    Int?
+  smtpUser                    String?
+  smtpPassword                String?
+  smtpFrom                    String?
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 }

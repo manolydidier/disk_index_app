@@ -72,7 +72,8 @@
       "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"/settings/automation -> %{http_code}\\\\n\" http://localhost:3000/settings/automation)",
       "Bash(npm view *)",
       "Bash(powershell -NoProfile -Command \"taskkill /PID 14240 /T /F\")",
-      "Bash(MSYS_NO_PATHCONV=1 curl -s \"http://localhost:3000/_next/static/css/44aa4c421f31c8ba.css\" -o \"C:\\\\Users\\\\RAVELO~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-RAVELOJAONA-MANOLY-Downloads-disk-indexer-app\\\\50629bd5-6334-44c1-b89b-913b185a4a9d\\\\scratchpad\\\\chunk.html\")"
+      "Bash(MSYS_NO_PATHCONV=1 curl -s \"http://localhost:3000/_next/static/css/44aa4c421f31c8ba.css\" -o \"C:\\\\Users\\\\RAVELO~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-RAVELOJAONA-MANOLY-Downloads-disk-indexer-app\\\\50629bd5-6334-44c1-b89b-913b185a4a9d\\\\scratchpad\\\\chunk.html\")",
+      "Bash(powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object OwningProcess\")"
     ],
     "additionalDirectories": [
       "\\tmp"

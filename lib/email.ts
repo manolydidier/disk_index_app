@@ -1,4 +1,5 @@
 import 'server-only';
+import { prisma } from '@/lib/prisma';
 
 // nodemailer pulls in Node-only built-ins (fs, net, tls...) via static
 // requires. A normal top-level import drags it into every bundle Next.js
@@ -7,37 +8,60 @@ import 'server-only';
 // `webpackIgnore` keeps it out of the bundle entirely; it's only resolved
 // by Node's real module loader when sendMail() actually runs.
 type NodemailerModule = typeof import('nodemailer');
-type Transporter = ReturnType<NodemailerModule['createTransport']>;
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+export type SmtpConfig = {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+};
 
-let transporter: Transporter | null = null;
+// SMTP settings configured via /settings/automation (stored in
+// AutomationSettings) always win. Environment variables are only a
+// fallback for the case where nobody has configured it through the UI yet.
+async function resolveSmtpConfig(): Promise<SmtpConfig | null> {
+  const settings = await prisma.automationSettings.findUnique({ where: { id: 1 } });
 
-async function getTransporter() {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  const host = settings?.smtpHost || process.env.SMTP_HOST;
+  const port = settings?.smtpPort ?? Number(process.env.SMTP_PORT ?? 587);
+  const user = settings?.smtpUser || process.env.SMTP_USER;
+  const pass = settings?.smtpPassword || process.env.SMTP_PASS;
+  const from = settings?.smtpFrom || process.env.SMTP_FROM || user;
 
-  if (!transporter) {
-    const nodemailer = (await import(
-      /* webpackIgnore: true */ 'nodemailer'
-    )) as NodemailerModule;
+  if (!host || !user || !pass || !from) return null;
 
-    transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS }
-    });
-  }
-
-  return transporter;
+  return { host, port, user, pass, from };
 }
 
-export function isEmailConfigured() {
-  return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+export async function isEmailConfigured() {
+  return (await resolveSmtpConfig()) !== null;
+}
+
+// Errors are thrown, not swallowed, so callers (the test-email endpoint in
+// particular) can tell the difference between "sent" and "failed".
+// Fire-and-forget callers (the automation daemon) already .catch() this.
+async function deliver(config: SmtpConfig, input: { to: string[]; subject: string; text: string }) {
+  const recipients = input.to.filter(Boolean);
+  if (recipients.length === 0) return;
+
+  const nodemailer = (await import(
+    /* webpackIgnore: true */ 'nodemailer'
+  )) as NodemailerModule;
+
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
+    auth: { user: config.user, pass: config.pass }
+  });
+
+  await transporter.sendMail({
+    from: config.from,
+    to: recipients.join(', '),
+    subject: input.subject,
+    text: input.text
+  });
 }
 
 export async function sendMail(input: {
@@ -45,27 +69,24 @@ export async function sendMail(input: {
   subject: string;
   text: string;
 }) {
-  const recipients = input.to.filter(Boolean);
-  if (recipients.length === 0) return;
+  const config = await resolveSmtpConfig();
 
-  const client = await getTransporter();
-
-  if (!client) {
+  if (!config) {
     console.warn(
-      '[EMAIL] SMTP non configuré (SMTP_HOST/SMTP_USER/SMTP_PASS manquants) — email ignoré:',
+      '[EMAIL] SMTP non configuré (ni dans /settings/automation, ni via SMTP_HOST/USER/PASS) — email ignoré:',
       input.subject
     );
     return;
   }
 
-  try {
-    await client.sendMail({
-      from: SMTP_FROM,
-      to: recipients.join(', '),
-      subject: input.subject,
-      text: input.text
-    });
-  } catch (error) {
-    console.error('[EMAIL] Envoi impossible:', error instanceof Error ? error.message : error);
-  }
+  await deliver(config, input);
+}
+
+// Used by the "tester l'envoi" button in the settings UI so an admin can
+// validate SMTP credentials they've typed but not saved yet.
+export async function sendMailWithConfig(
+  config: SmtpConfig,
+  input: { to: string[]; subject: string; text: string }
+) {
+  await deliver(config, input);
 }

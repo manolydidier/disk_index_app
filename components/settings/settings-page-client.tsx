@@ -63,6 +63,14 @@ type AutomationSettingsPayload = {
     lowSpacePercentThreshold: number;
     notifyEmailEnabled: boolean;
     notifyEmailRecipients: string[];
+    smtpHost: string | null;
+    smtpPort: number | null;
+    smtpUser: string | null;
+    smtpFrom: string | null;
+    smtpPasswordSet: boolean;
+    // Client-only field: the new password being typed, if any. Never
+    // populated from the server (the API never echoes the stored password).
+    smtpPassword?: string;
   };
   disks: Array<{
     id: string;
@@ -252,6 +260,47 @@ function AutomationSettingsPanel() {
   const [data, setData] = useState<AutomationSettingsPayload | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState("");
+  const [testingEmail, setTestingEmail] = useState(false);
+
+  async function sendTestEmail() {
+    if (!testEmailAddress.trim() || !data) return;
+
+    setTestingEmail(true);
+
+    try {
+      const response = await fetch("/api/automation/settings/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: testEmailAddress.trim(),
+          smtpHost: data.settings.smtpHost || undefined,
+          smtpPort: data.settings.smtpPort || undefined,
+          smtpUser: data.settings.smtpUser || undefined,
+          smtpPassword: data.settings.smtpPassword || undefined,
+          smtpFrom: data.settings.smtpFrom || undefined,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Échec de l'envoi.");
+      }
+
+      toast.success("Email envoyé", { description: payload.message });
+    } catch (error) {
+      toast.error("Échec de l'envoi", {
+        description:
+          error instanceof Error ? error.message : "Vérifie la configuration SMTP.",
+      });
+    } finally {
+      setTestingEmail(false);
+    }
+  }
 
   async function load() {
     try {
@@ -505,7 +554,7 @@ function AutomationSettingsPanel() {
         <div className="space-y-4">
           <SettingToggle
             label="Activer les notifications email"
-            description="Nécessite un serveur SMTP configuré côté serveur (SMTP_HOST, SMTP_USER, SMTP_PASS)."
+            description="Nécessite un serveur SMTP configuré ci-dessous."
             checked={data.settings.notifyEmailEnabled}
             onChange={(checked) => updateGlobal("notifyEmailEnabled", checked)}
           />
@@ -529,6 +578,102 @@ function AutomationSettingsPanel() {
               }
             />
           </SettingField>
+
+          <div className="grid gap-4 rounded-xl border bg-muted/10 p-4 sm:grid-cols-2">
+            <SettingField label="Serveur SMTP" hint="Ex. smtp.gmail.com">
+              <input
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={data.settings.smtpHost ?? ""}
+                placeholder="smtp.gmail.com"
+                onChange={(e) => updateGlobal("smtpHost", e.target.value)}
+              />
+            </SettingField>
+
+            <SettingField label="Port" hint="587 (STARTTLS) ou 465 (SSL)">
+              <input
+                type="number"
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={data.settings.smtpPort ?? ""}
+                placeholder="587"
+                onChange={(e) =>
+                  updateGlobal(
+                    "smtpPort",
+                    e.target.value ? Number(e.target.value) : null
+                  )
+                }
+              />
+            </SettingField>
+
+            <SettingField label="Utilisateur SMTP" hint="Ton adresse Gmail complète">
+              <input
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={data.settings.smtpUser ?? ""}
+                placeholder="toncompte@gmail.com"
+                onChange={(e) => updateGlobal("smtpUser", e.target.value)}
+              />
+            </SettingField>
+
+            <SettingField
+              label="Mot de passe SMTP"
+              hint={
+                data.settings.smtpPasswordSet
+                  ? "Un mot de passe est déjà enregistré — laisse vide pour le garder."
+                  : "Pour Gmail : un mot de passe d'application, pas ton mot de passe habituel."
+              }
+            >
+              <input
+                type="password"
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={data.settings.smtpPassword ?? ""}
+                placeholder={
+                  data.settings.smtpPasswordSet ? "••••••••••••••••" : ""
+                }
+                onChange={(e) => updateGlobal("smtpPassword", e.target.value)}
+              />
+            </SettingField>
+
+            <SettingField
+              label="Adresse d'expédition"
+              hint="Optionnel — utilise l'utilisateur SMTP par défaut."
+            >
+              <input
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={data.settings.smtpFrom ?? ""}
+                placeholder={data.settings.smtpUser ?? ""}
+                onChange={(e) => updateGlobal("smtpFrom", e.target.value)}
+              />
+            </SettingField>
+
+            <div className="sm:col-span-2">
+              <SettingField
+                label="Tester l'envoi"
+                hint="Envoie un email avec les valeurs ci-dessus, même si tu n'as pas encore enregistré."
+              >
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={testEmailAddress}
+                    placeholder="toi@exemple.com"
+                    onChange={(e) => setTestEmailAddress(e.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!testEmailAddress.trim() || testingEmail}
+                    onClick={() => void sendTestEmail()}
+                  >
+                    {testingEmail ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <SearchCheck className="h-4 w-4" />
+                    )}
+                    Envoyer
+                  </Button>
+                </div>
+              </SettingField>
+            </div>
+          </div>
         </div>
       </SettingsSection>
 

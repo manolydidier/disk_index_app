@@ -67,7 +67,7 @@ type DashboardDisk = {
   } | null;
   latestAgentCommand: {
     id: string;
-    commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS';
+    commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS' | 'DELETE_FILE';
     status: 'PENDING' | 'CLAIMED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
     progressPercent: number;
     phase: string | null;
@@ -845,10 +845,11 @@ function getMachineLabel(disk: DashboardDisk) {
 }
 
 function getCommandTypeLabel(
-  commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS'
+  commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS' | 'DELETE_FILE'
 ) {
   if (commandType === 'FULL_SCAN') return 'Scan complet';
   if (commandType === 'DIFFERENTIAL_SCAN') return 'Scan différentiel';
+  if (commandType === 'DELETE_FILE') return 'Suppression de fichier';
   return 'Actualisation des disques';
 }
 

@@ -12,8 +12,45 @@ import { prisma } from '@/lib/prisma';
 import { buildDiskTreeResponse } from '@/lib/tree';
 import { getFsPromises, getPath } from '@/lib/server/node-runtime';
 
-const { access, lstat, opendir } = getFsPromises();
+const { access, lstat, opendir, readFile } = getFsPromises();
 const path = getPath();
+
+// MVP content search: only plain-text-ish files under a size cap get their
+// content read and stored for full-text matching in /api/search. No PDF/
+// Office extraction — that's a separate, heavier feature.
+const TEXT_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
+  'ini', 'conf', 'cfg', 'env', 'toml',
+  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'py', 'java', 'c', 'h', 'cpp', 'hpp',
+  'cs', 'go', 'rs', 'php', 'rb', 'css', 'scss', 'less', 'html', 'htm', 'sql',
+  'sh', 'ps1', 'bat'
+]);
+const MAX_CONTENT_READ_BYTES = 512 * 1024;
+const MAX_STORED_CONTENT_CHARS = 200_000;
+
+function shouldExtractContent(extension: string | null, size: bigint | null) {
+  return Boolean(
+    extension &&
+      TEXT_EXTENSIONS.has(extension) &&
+      size !== null &&
+      size > BigInt(0) &&
+      size <= BigInt(MAX_CONTENT_READ_BYTES)
+  );
+}
+
+async function readTextContent(absolutePath: string): Promise<string | null> {
+  try {
+    const raw = await readFile(absolutePath, 'utf8');
+    // Binary files misidentified by extension usually contain null bytes —
+    // skip storing garbage rather than trying to sanitize it.
+    if (raw.indexOf(String.fromCharCode(0)) !== -1) return null;
+    return raw.length > MAX_STORED_CONTENT_CHARS
+      ? raw.slice(0, MAX_STORED_CONTENT_CHARS)
+      : raw;
+  } catch {
+    return null;
+  }
+}
 
 type DiskRecord = {
   id: string;
@@ -34,6 +71,7 @@ type ScannedNode = {
   inode: string | null;
   fingerprint: string | null;
   metadata: Prisma.InputJsonValue;
+  contentText: string | null;
   parentRelativePath: string | null;
 };
 
@@ -513,13 +551,18 @@ async function scanFilesystem(
           ? normalizedRelative.split('/').slice(0, -1).join('/')
           : parentRelativePath;
 
+        const fileSize = dirent.isFile() ? BigInt(stats.size) : null;
+        const contentText = shouldExtractContent(extension, fileSize)
+          ? await readTextContent(absolutePath)
+          : null;
+
         output.push({
           entryType,
           name: dirent.name,
           relativePath: normalizedRelative,
           fullPath,
           extension,
-          size: dirent.isFile() ? BigInt(stats.size) : null,
+          size: fileSize,
           modifiedAt: stats.mtime ? new Date(stats.mtime) : null,
           inode:
             typeof stats.ino === 'number' && stats.ino > 0
@@ -528,7 +571,7 @@ async function scanFilesystem(
           fingerprint: buildFingerprint({
             entryType,
             extension,
-            size: dirent.isFile() ? BigInt(stats.size) : null,
+            size: fileSize,
             modifiedAt: stats.mtime ? new Date(stats.mtime) : null,
             name: dirent.name
           }),
@@ -539,6 +582,7 @@ async function scanFilesystem(
             isSymbolicLink: dirent.isSymbolicLink(),
             depth: nextDepth
           },
+          contentText,
           parentRelativePath: currentParentRelative ?? null
         });
 
@@ -846,6 +890,7 @@ function mapNodeToCreate(
     inode: node.inode,
     fingerprint: node.fingerprint,
     metadata: node.metadata,
+    contentText: node.contentText,
     deletedAt: null,
     parentId: null
   };
@@ -865,6 +910,7 @@ function mapNodeToUpdate(
     inode: node.inode,
     fingerprint: node.fingerprint,
     metadata: node.metadata,
+    contentText: node.contentText,
     deletedAt: null,
     parentId: null
   };

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AgentCommandStatus } from '@prisma/client';
+import { ActivityType, AgentCommandStatus, AgentCommandType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { authenticateAgentRequest } from '@/lib/agent/auth';
 
@@ -89,6 +89,43 @@ export async function POST(
             : undefined
       }
     });
+
+    if (
+      updated.commandType === AgentCommandType.DELETE_FILE &&
+      status === AgentCommandStatus.COMPLETED
+    ) {
+      const payload =
+        updated.payload && typeof updated.payload === 'object' && !Array.isArray(updated.payload)
+          ? (updated.payload as Record<string, unknown>)
+          : {};
+
+      const fileEntryId = String(payload.fileEntryId ?? '');
+      const fullPath = String(payload.fullPath ?? '');
+
+      if (fileEntryId) {
+        const entry = await prisma.fileEntry.findUnique({
+          where: { id: fileEntryId },
+          select: { id: true, diskId: true, fullPath: true, name: true, deletedAt: true }
+        });
+
+        if (entry && !entry.deletedAt) {
+          await prisma.$transaction([
+            prisma.fileEntry.update({
+              where: { id: entry.id },
+              data: { deletedAt: new Date() }
+            }),
+            prisma.diskActivity.create({
+              data: {
+                diskId: entry.diskId,
+                activityType: ActivityType.DELETED,
+                path: entry.fullPath || fullPath,
+                details: { name: entry.name, source: 'manual-delete-agent' }
+              }
+            })
+          ]);
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

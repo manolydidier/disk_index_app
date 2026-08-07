@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
-import { mkdir, readFile, writeFile, lstat, opendir } from 'fs/promises';
+import { mkdir, readFile, writeFile, lstat, opendir, unlink } from 'fs/promises';
 
 type AgentConfig = {
   machineId: string;
@@ -30,6 +30,7 @@ type IndexedEntry = {
   extension?: string | null;
   size?: number | null;
   modifiedAt?: string | null;
+  contentText?: string | null;
 };
 
 type PowerShellVolume = {
@@ -42,7 +43,11 @@ type PowerShellVolume = {
 
 type AgentCommand = {
   id: string;
-  commandType: 'FULL_SCAN' | 'DIFFERENTIAL_SCAN' | 'REFRESH_AVAILABLE_DISKS';
+  commandType:
+    | 'FULL_SCAN'
+    | 'DIFFERENTIAL_SCAN'
+    | 'REFRESH_AVAILABLE_DISKS'
+    | 'DELETE_FILE';
   status:
     | 'PENDING'
     | 'CLAIMED'
@@ -50,6 +55,11 @@ type AgentCommand = {
     | 'COMPLETED'
     | 'FAILED'
     | 'CANCELED';
+  payload?: {
+    fileEntryId?: string;
+    fullPath?: string;
+    relativePath?: string;
+  } | null;
   disk: {
     id: string;
     code: string;
@@ -171,6 +181,38 @@ function isIgnorableFsError(error: unknown) {
 
   const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
   return ['EPERM', 'EACCES', 'EBUSY', 'ENOENT'].includes(code);
+}
+
+// MVP content search: only plain-text-ish files under a size cap get their
+// content read and uploaded for full-text matching in /api/search. No PDF/
+// Office extraction — that's a separate, heavier feature. Kept in sync with
+// the same allow-list in lib/scanner.ts (server-side scanning).
+const TEXT_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
+  'ini', 'conf', 'cfg', 'env', 'toml',
+  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'py', 'java', 'c', 'h', 'cpp', 'hpp',
+  'cs', 'go', 'rs', 'php', 'rb', 'css', 'scss', 'less', 'html', 'htm', 'sql',
+  'sh', 'ps1', 'bat'
+]);
+const MAX_CONTENT_READ_BYTES = 512 * 1024;
+const MAX_STORED_CONTENT_CHARS = 200_000;
+
+function shouldExtractContent(extension: string | null, size: number) {
+  return Boolean(
+    extension && TEXT_EXTENSIONS.has(extension) && size > 0 && size <= MAX_CONTENT_READ_BYTES
+  );
+}
+
+async function readTextContent(absolutePath: string): Promise<string | null> {
+  try {
+    const raw = await readFile(absolutePath, 'utf8');
+    if (raw.indexOf(String.fromCharCode(0)) !== -1) return null;
+    return raw.length > MAX_STORED_CONTENT_CHARS
+      ? raw.slice(0, MAX_STORED_CONTENT_CHARS)
+      : raw;
+  } catch {
+    return null;
+  }
 }
 
 function sleep(ms: number) {
@@ -542,13 +584,18 @@ async function scanFilesystem(
 
           await walk(absolutePath);
         } else {
+          const contentText = shouldExtractContent(extension, stats.size)
+            ? await readTextContent(absolutePath)
+            : null;
+
           output.push({
             name: dirent.name,
             relativePath,
             type: 'file',
             extension,
             size: stats.size,
-            modifiedAt: stats.mtime ? new Date(stats.mtime).toISOString() : null
+            modifiedAt: stats.mtime ? new Date(stats.mtime).toISOString() : null,
+            contentText
           });
         }
       } catch (error) {
@@ -623,6 +670,53 @@ async function uploadFullIndex(
 }
 
 async function executeAgentCommand(token: string, command: AgentCommand) {
+  if (command.commandType === 'DELETE_FILE') {
+    const fullPath = command.payload?.fullPath;
+
+    if (!fullPath) {
+      await updateCommandStatus(token, command.id, {
+        status: 'FAILED',
+        phase: 'ERREUR',
+        errorMessage: 'Chemin du fichier manquant dans la commande.'
+      });
+      return;
+    }
+
+    await updateCommandStatus(token, command.id, {
+      status: 'RUNNING',
+      phase: 'SUPPRESSION',
+      currentPath: fullPath,
+      progressPercent: 50
+    });
+
+    try {
+      await unlink(fullPath);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+
+      if (code !== 'ENOENT') {
+        await updateCommandStatus(token, command.id, {
+          status: 'FAILED',
+          phase: 'ERREUR',
+          currentPath: fullPath,
+          errorMessage:
+            error instanceof Error ? error.message : 'Suppression impossible.'
+        });
+        return;
+      }
+      // Already gone — treat as success, the index still needs updating.
+    }
+
+    await updateCommandStatus(token, command.id, {
+      status: 'COMPLETED',
+      phase: 'TERMINÉ',
+      currentPath: fullPath,
+      progressPercent: 100
+    });
+
+    return;
+  }
+
   if (command.commandType === 'REFRESH_AVAILABLE_DISKS') {
     await updateCommandStatus(token, command.id, {
       status: 'RUNNING',

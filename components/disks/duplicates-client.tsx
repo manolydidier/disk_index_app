@@ -1,13 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronDown, Copy, Files, Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Copy, Files, Loader2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import { ExportCsvButton } from '@/components/disks/export-csv-button';
 import { formatBytes, truncateMiddle } from '@/lib/utils';
 
@@ -17,18 +25,20 @@ type DiskOption = {
   name: string;
 };
 
+type DuplicateFile = {
+  id: string;
+  relativePath: string;
+  fullPath: string;
+  modifiedAt: string | null;
+  disk: { id: string; code: string; name: string };
+};
+
 type DuplicateGroup = {
   name: string;
   size: string;
   count: number;
   wasted: string;
-  files: {
-    id: string;
-    relativePath: string;
-    fullPath: string;
-    modifiedAt: string | null;
-    disk: { id: string; code: string; name: string };
-  }[];
+  files: DuplicateFile[];
 };
 
 type DuplicatesData = {
@@ -58,6 +68,60 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
   const [diskId, setDiskId] = useState('');
   const [data, setData] = useState<DuplicatesData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<DuplicateFile | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+
+    setDeletingId(deleteTarget.id);
+
+    try {
+      const response = await fetch(`/api/file-entries/${deleteTarget.id}/delete`, {
+        method: 'POST'
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        mode?: 'immediate' | 'queued';
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Suppression impossible.');
+      }
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              groups: current.groups
+                .map((group) => ({
+                  ...group,
+                  files: group.files.filter((file) => file.id !== deleteTarget.id)
+                }))
+                .filter((group) => group.files.length > 1)
+            }
+          : current
+      );
+
+      toast.success(
+        payload.mode === 'queued' ? 'Suppression demandée' : 'Fichier supprimé',
+        {
+          description:
+            payload.mode === 'queued'
+              ? "L'agent va supprimer ce fichier sous peu."
+              : 'Le fichier a été supprimé du disque et retiré de l’index.'
+        }
+      );
+    } catch (error) {
+      toast.error('Suppression impossible', {
+        description: error instanceof Error ? error.message : undefined
+      });
+    } finally {
+      setDeletingId(null);
+      setDeleteTarget(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -193,15 +257,33 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
                             Modifié {formatDate(file.modifiedAt)}
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void copyText(file.fullPath)}
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          Copier
-                        </Button>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void copyText(file.fullPath)}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            Copier
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            disabled={deletingId === file.id}
+                            onClick={() => setDeleteTarget(file)}
+                          >
+                            {deletingId === file.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            Supprimer
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -211,6 +293,43 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
           </>
         )}
       </CardContent>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer ce fichier ?</DialogTitle>
+            <DialogDescription>
+              Cette action supprime le fichier du disque{' '}
+              {deleteTarget ? `(${deleteTarget.disk.code} — ${deleteTarget.disk.name})` : ''} et
+              le retire de l&apos;index. Elle est irréversible.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteTarget ? (
+            <p
+              className="break-all rounded-lg bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground"
+              title={deleteTarget.fullPath}
+            >
+              {deleteTarget.fullPath}
+            </p>
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={Boolean(deletingId)}
+              onClick={() => void confirmDelete()}
+            >
+              {deletingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Supprimer définitivement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

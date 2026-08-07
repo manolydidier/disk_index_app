@@ -51,6 +51,7 @@ type SearchResult = {
   entryType: 'FILE' | 'FOLDER';
   modifiedAt: string | null;
   size: string | null;
+  contentSnippet: string | null;
   disk: {
     id: string;
     code: string;
@@ -530,6 +531,12 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
 
                         <TableCell className="font-mono text-xs">
                           {truncateMiddle(result.fullPath, 70, 28)}
+                          {result.contentSnippet ? (
+                            <p className="mt-1 max-w-[420px] truncate font-sans text-[11px] italic text-muted-foreground">
+                              <span className="not-italic text-foreground">Trouvé dans le contenu : </span>
+                              {result.contentSnippet}
+                            </p>
+                          ) : null}
                         </TableCell>
 
                         <TableCell>

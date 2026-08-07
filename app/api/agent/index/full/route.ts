@@ -23,6 +23,7 @@ type IndexedEntry = {
   extension?: string | null;
   size?: number | null;
   modifiedAt?: string | null;
+  contentText?: string | null;
 };
 
 type PreparedEntry = {
@@ -36,6 +37,7 @@ type PreparedEntry = {
   modifiedAt: Date | null;
   inode: string | null;
   fingerprint: string;
+  contentText: string | null;
   metadata: {
     importedBy: string;
     agentDeviceId: string;
@@ -199,6 +201,7 @@ export async function POST(request: Request) {
             : null,
         modifiedAt: entry.modifiedAt ? new Date(entry.modifiedAt) : null,
         inode: null,
+        contentText: entry.type === 'file' ? entry.contentText ?? null : null,
         fingerprint: buildFingerprint({
           ...entry,
           relativePath,
@@ -268,6 +271,7 @@ export async function POST(request: Request) {
                 size: entry.size,
                 modifiedAt: entry.modifiedAt,
                 fingerprint: entry.fingerprint,
+                contentText: entry.contentText,
                 metadata: entry.metadata,
                 deletedAt: null
               }

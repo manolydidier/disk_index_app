@@ -120,6 +120,7 @@ model FileEntry {
   fingerprint   String?
   metadata      Json?
   checksum      String?
+  contentText   String?
   deletedAt     DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -297,6 +298,7 @@ enum AgentCommandType {
   FULL_SCAN
   DIFFERENTIAL_SCAN
   REFRESH_AVAILABLE_DISKS
+  DELETE_FILE
 }
 
 enum AgentCommandStatus {

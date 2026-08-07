@@ -4,12 +4,20 @@ Application web professionnelle en **Next.js** pour gérer, indexer et recherche
 
 ## Points clés
 
-- **Gestion des disques** : ajout, mise à jour, activation, désactivation, suppression conditionnelle.
-- **Indexation complète** : scan récursif de l'arborescence et transformation en structure JSON.
+- **Gestion des disques** : ajout, mise à jour, activation, désactivation, suppression conditionnelle. Support des disques scannés directement par le serveur (`SERVER`) et des disques distants remontés par un agent installé sur une autre machine (`AGENT`).
+- **Indexation complète** : scan récursif de l'arborescence et transformation en structure JSON, en local ou via l'agent.
 - **Stockage PostgreSQL / Prisma** : persistance des disques, entrées indexées, jobs de scan et activités détectées.
-- **Recherche rapide** : recherche par nom, extension ou chemin exact sur l'ensemble des disques.
+- **Recherche avancée** : recherche par nom, extension, chemin exact ou **contenu** (fichiers texte/code, voir plus bas), avec filtres par type, taille et date de modification.
+- **Analyse d'espace disque** (`/storage`) : répartition du stockage par type de fichier, fichiers les plus volumineux, export CSV.
+- **Détection de doublons** (`/duplicates`) : fichiers en double par nom + taille, avec estimation de l'espace récupérable et **suppression directe** (immédiate sur les disques serveur, via commande à l'agent sur les disques distants).
+- **Rapport de changements** : sur chaque fiche disque, compare l'activité (ajouts/modifications/suppressions/renommages) sur une période choisie, avec export CSV.
+- **Palette de commande** (Ctrl/Cmd+K) : accès rapide à toutes les pages et à tous les disques indexés.
 - **Détection de changements** : ajout, suppression, modification et renommage probable.
-- **Alerting UI** : popups côté interface lorsqu'une nouvelle activité est détectée.
+- **Automatisation** : détection de nouveaux disques, surveillance en direct (watchers), scans planifiés en filet de sécurité, alertes de capacité disque faible.
+- **Notifications** : in-app, et email (SMTP configurable depuis l'interface, voir plus bas).
+- **Authentification et rôles** : NextAuth (Credentials), rôles `ADMIN`/`USER`, rate limiting sur le login, contrôle d'accès par disque (un admin choisit quels utilisateurs voient quels disques).
+- **Mode sombre**, écrans de chargement et pages d'erreur dédiées.
+- **Tests automatisés** (Vitest) sur la logique critique (validation, rate limiting, CSV, libellés disque).
 - **App Router + Route Handlers** : architecture moderne Next.js.
 - **Tailwind CSS + shadcn/ui** : interface admin propre et extensible.
 
@@ -37,9 +45,11 @@ Déploiement recommandé :
 - shadcn/ui
 - Prisma
 - PostgreSQL
+- NextAuth (Credentials provider, sessions JWT)
+- Vitest (tests unitaires)
 - Route Handlers
 
-`NextAuth` n'est pas inclus dans cette version, mais l'architecture permet son ajout facilement si vous souhaitez restreindre l'accès à l'application.
+L'authentification est incluse et active par défaut : un middleware protège toutes les pages (hors `/login` et les routes API, qui vérifient elles-mêmes la session). Le premier compte créé via `/login` devient automatiquement administrateur ; les comptes suivants doivent être créés par un admin.
 
 ---
 
@@ -146,27 +156,53 @@ L'API `/api/disks/:id/tree` retourne une structure de ce type :
 
 ## Routes API
 
+Toutes les routes ci-dessous (sauf `/api/health` et `/api/auth/*`) exigent une session NextAuth valide ; certaines sont réservées aux administrateurs ou filtrées par accès disque (voir [Contrôle d'accès par disque](#contrôle-daccès-par-disque)).
+
 ### Disques
 - `GET /api/disks`
 - `POST /api/disks`
 - `GET /api/disks/[diskId]`
 - `PATCH /api/disks/[diskId]`
 - `DELETE /api/disks/[diskId]`
+- `GET /api/disks/[diskId]/export?type=entries|scans|activities` — export CSV
+- `GET /api/disks/[diskId]/access` / `POST /api/disks/[diskId]/access` — gestion des accès (admin)
 
 ### Scans
-- `POST /api/disks/[diskId]/scan`
+- `POST /api/disks/[diskId]/scan` — scan asynchrone (disques `SERVER`)
   - body : `{ "scanType": "FULL" }` ou `{ "scanType": "DIFFERENTIAL" }`
+- `POST /api/disks/[diskId]/scan-sync` — scan synchrone
+- `POST /api/agent/commands/request-scan` — demande de scan pour un disque `AGENT`
 
 ### Arborescence
 - `GET /api/disks/[diskId]/tree`
 
 ### Recherche
 - `GET /api/search?q=rapport`
-- `GET /api/search?q=rapport&diskId=...`
+- `GET /api/search?q=rapport&diskId=...&extension=...&sizeMin=...&modifiedAfter=...`
+
+### Analyse d'espace et doublons
+- `GET /api/disks/[diskId]/storage` / `GET /api/disks/[diskId]/storage/export`
+- `GET /api/duplicates?diskId=...` / `GET /api/duplicates/export`
+- `POST /api/file-entries/[entryId]/delete` — supprime un fichier (immédiat sur disque `SERVER`, via commande agent sur disque `AGENT`)
+
+### Rapport de changements
+- `GET /api/disks/[diskId]/changes?from=...&to=...` / `GET /api/disks/[diskId]/changes/export`
 
 ### Activités
 - `GET /api/activities?unacknowledged=true`
 - `POST /api/activities/acknowledge`
+
+### Automatisation
+- `GET /api/automation/settings` / `PUT /api/automation/settings`
+- `POST /api/automation/settings/test-email`
+- `GET /api/automation/events` / `POST /api/automation/events/[eventId]/action`
+
+### Agents et utilisateurs (admin)
+- `GET /api/agent-devices`, `PATCH|DELETE /api/agent-devices/[deviceId]`, `POST .../revoke`, `POST .../reactivate`
+- `GET /api/users`, `PATCH /api/users/[userId]/role`
+
+### Divers
+- `GET /api/health` — vérification de santé (DB), sans authentification
 
 ---
 
@@ -292,50 +328,59 @@ SMTP_FROM="toncompte@gmail.com"
 
 ## Améliorations recommandées pour la production
 
-### 1. Queue de background jobs
-Pour les gros volumes, remplacez le scan synchrone par :
+### Déjà en place
+- **Authentification / rôles** : NextAuth, `ADMIN`/`USER`, rate limiting sur le login, contrôle d'accès par disque.
+- **Watchers temps réel** : `chokidar` côté serveur, plus la planification de scans complets en filet de sécurité.
+- **Dashboard avancé** : volumétrie par disque (`/storage`), état de santé (capacité disque, alertes), planification automatique des rescans.
+
+### Encore à faire pour un très gros volume
+
+#### 1. Queue de background jobs
+Pour les très gros volumes, remplacez le scan synchrone par :
 - BullMQ
 - pg-boss
 - Trigger.dev
 
-### 2. Recherche full-text
-Ajoutez :
-- index trigram PostgreSQL
-- recherche plein texte sur `name`, `fullPath`, `extension`
+#### 2. Recherche full-text — étendre au-delà des fichiers texte
+La recherche sur le contenu couvre aujourd'hui uniquement les fichiers texte/code (`.txt`, `.md`, `.json`, `.js`, `.py`, etc.), sous 512 Ko, via une simple recherche `ILIKE` (voir `lib/scanner.ts` / `agent/index.ts` pour la liste d'extensions et le plafond). Pour aller plus loin :
+- extraction de texte pour PDF et documents Office (ex. `pdf-parse`, `mammoth`)
+- remplacer `ILIKE` par un vrai index plein texte PostgreSQL (`tsvector` + `pg_trgm`) une fois le volume de contenu indexé significatif
 
-### 3. Watchers temps réel
-Pour certains environnements :
-- `chokidar`
-- watchers OS natifs
+#### 3. Vulnérabilités de dépendances à surveiller
+`npm audit` peut signaler des CVE sur `next-auth` ou `next` nécessitant une montée de version majeure (Auth.js v5 / Next.js 16). Ce sont des migrations à part entière (API différente, middleware à réécrire) — à traiter en dehors d'un cycle de correctifs mineurs, avec des tests de non-régression complets sur l'authentification.
 
-### 4. Authentification / rôles
-Ajouter :
-- NextAuth/Auth.js
-- RBAC admin / lecture seule
-
-### 5. Dashboard avancé
-- volumétrie par disque
-- heatmap d'activité
-- état de santé du disque
-- planification automatique des rescans
+#### 4. Packaging pour installation simplifiée
+- `Dockerfile` + `docker-compose.yml` (app + PostgreSQL)
+- script de sauvegarde/restauration (`pg_dump`)
 
 ---
 
 ## Arborescence du projet
 
 ```bash
+agent/            # process autonome installé sur une machine distante (disques AGENT)
 app/
   api/
   disks/[id]/
+  duplicates/
+  login/
   search/
+  settings/automation/
+  storage/
 components/
+  auth/
+  dashboard/
   disks/
   layout/
   providers/
+  settings/
   ui/
 lib/
+  agent/          # auth agent, requêtes de scan
+  automation/      # daemon (watchers, capacité, scans planifiés, alertes)
+  server/
 prisma/
-types/
+scripts/          # scripts de démarrage (tâche planifiée Windows)
 ```
 
 ---

@@ -28,6 +28,8 @@ export function getFsPromises() {
     lstat: (...args: any[]) => Promise<any>;
     opendir: (...args: any[]) => Promise<any>;
     readdir: (...args: any[]) => Promise<any>;
+    unlink: (path: string) => Promise<void>;
+    readFile: (path: string, encoding: 'utf8') => Promise<string>;
     statfs: (
       path: string,
       options?: { bigint?: boolean }

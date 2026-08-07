@@ -42,6 +42,19 @@ function extractAbsolutePath(
   return `${normalizedRoot}\\${normalizedRelative}`;
 }
 
+function buildContentSnippet(content: string, query: string, radius = 80) {
+  const index = content.toLowerCase().indexOf(query.toLowerCase());
+  if (index === -1) return null;
+
+  const start = Math.max(0, index - radius);
+  const end = Math.min(content.length, index + query.length + radius);
+
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < content.length ? '…' : '';
+
+  return `${prefix}${content.slice(start, end).trim()}${suffix}`;
+}
+
 export async function GET(request: Request) {
   const { session, unauthorized } = await requireSession();
   if (unauthorized) return unauthorized;
@@ -125,6 +138,12 @@ export async function GET(request: Request) {
           extension: {
             equals: normalizedExtension
           }
+        },
+        {
+          contentText: {
+            contains: likeSafeQuery,
+            mode: 'insensitive'
+          }
         }
       ]
     },
@@ -138,6 +157,7 @@ export async function GET(request: Request) {
       modifiedAt: true,
       size: true,
       metadata: true,
+      contentText: true,
       disk: {
         select: {
           id: true,
@@ -162,6 +182,17 @@ export async function GET(request: Request) {
       item.relativePath
     );
 
+    const matchedByMetadata =
+      item.name.toLowerCase().includes(likeSafeQuery.toLowerCase()) ||
+      item.fullPath.toLowerCase().includes(likeSafeQuery.toLowerCase()) ||
+      item.relativePath.toLowerCase().includes(likeSafeQuery.toLowerCase()) ||
+      item.extension === normalizedExtension;
+
+    const contentSnippet =
+      !matchedByMetadata && item.contentText
+        ? buildContentSnippet(item.contentText, likeSafeQuery)
+        : null;
+
     return {
       id: item.id,
       name: item.name,
@@ -172,6 +203,7 @@ export async function GET(request: Request) {
       entryType: item.entryType,
       modifiedAt: item.modifiedAt?.toISOString() ?? null,
       size: item.size?.toString() ?? null,
+      contentSnippet,
       disk: {
         id: item.disk.id,
         code: item.disk.code,

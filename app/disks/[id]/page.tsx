@@ -36,6 +36,7 @@ import { OpenDiskButton } from '@/components/disks/open-disk-button';
 import { ScanActionsModal } from '@/components/disks/scan-actions-modal';
 import { ExportCsvButton } from '@/components/disks/export-csv-button';
 import { DiskAccessPanel } from '@/components/disks/disk-access-panel';
+import { DiskChangesReport } from '@/components/disks/disk-changes-report';
 import { canAccessDisk, getSessionAccessibleDiskIds } from '@/lib/disk-access';
 import { formatBytes } from '@/lib/utils';
 import { getServerSession } from 'next-auth';
@@ -498,6 +499,22 @@ export default async function DiskDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="overflow-hidden border-0 shadow-sm">
+        <CardHeader className="border-b bg-muted/20">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="h-4 w-4" />
+            Rapport de changements
+          </CardTitle>
+          <CardDescription>
+            Compare l’activité de ce disque sur une période donnée.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="pt-6">
+          <DiskChangesReport diskId={disk.id} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

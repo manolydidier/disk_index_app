@@ -2,19 +2,35 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Fira_Code, Fira_Sans } from 'next/font/google';
 import { Toaster } from 'sonner';
 import { ChevronDown, Files, HardDrive, PieChart, Search, Settings2, LayoutGrid, Wrench } from 'lucide-react';
 
 import './globals.css';
 
-import { ActivityMonitor } from '@/components/providers/activity-monitor';
-import { AutomationMonitor } from '@/components/providers/automation-monitor';
+const fontSans = Fira_Sans({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-sans',
+  display: 'swap'
+});
+
+const fontMono = Fira_Code({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-mono',
+  display: 'swap'
+});
+
+import { NotificationDock } from '@/components/providers/notification-dock';
 import { AuthProvider } from '@/components/providers/auth-provider';
 import { AuthActions } from '@/components/auth/auth-actions';
-import { NavLink, MobileIconLink } from '@/components/layout/nav-link';
+import { NavLink } from '@/components/layout/nav-link';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { ThemeProvider } from '@/components/providers/theme-provider';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +50,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" suppressHydrationWarning>
-      <body className="min-h-screen bg-muted/30 text-foreground antialiased">
+    <html lang="fr" suppressHydrationWarning className={`${fontSans.variable} ${fontMono.variable}`}>
+      <body className="min-h-screen bg-muted/30 font-sans text-foreground antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <TooltipProvider delayDuration={200}>
         <AuthProvider>
           <div className="min-h-screen">
             <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur-md">
@@ -114,39 +131,14 @@ export default function RootLayout({
                   </nav>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   <CommandPalette />
 
                   <ThemeToggle />
 
                   <AuthActions />
 
-                  <div className="flex items-center gap-2 md:hidden">
-                    <MobileIconLink href="/" label="Accueil">
-                      <LayoutGrid className="h-4 w-4" />
-                    </MobileIconLink>
-
-                    <MobileIconLink href="/search" label="Recherche">
-                      <Search className="h-4 w-4" />
-                    </MobileIconLink>
-
-                    <MobileIconLink href="/storage" label="Analyse d'espace">
-                      <PieChart className="h-4 w-4" />
-                    </MobileIconLink>
-
-                    <MobileIconLink href="/duplicates" label="Doublons">
-                      <Files className="h-4 w-4" />
-                    </MobileIconLink>
-
-                    <MobileIconLink
-                      href="/settings/automation"
-                      label="Automatisation"
-                    >
-                      <Settings2 className="h-4 w-4" />
-                    </MobileIconLink>
-
-                    <ThemeToggle />
-                  </div>
+                  <MobileNav />
                 </div>
               </div>
             </header>
@@ -156,9 +148,9 @@ export default function RootLayout({
             </main>
           </div>
 
-          <ActivityMonitor />
-          <AutomationMonitor />
+          <NotificationDock />
         </AuthProvider>
+        </TooltipProvider>
         </ThemeProvider>
 
         <Toaster richColors position="top-right" closeButton />

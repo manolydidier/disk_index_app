@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts';
 import { FileText, Folder, HardDrive, Loader2, PieChart } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { ExportCsvButton } from '@/components/disks/export-csv-button';
 import { formatBytes, truncateMiddle } from '@/lib/utils';
 
@@ -40,16 +42,11 @@ function formatDate(value: string | null) {
   }
 }
 
-const EXTENSION_COLORS = [
-  'bg-primary',
-  'bg-blue-500',
-  'bg-emerald-500',
-  'bg-amber-500',
-  'bg-violet-500',
-  'bg-rose-500',
-  'bg-cyan-500',
-  'bg-orange-500'
-];
+const extensionChartConfig = {
+  size: { label: 'Taille' }
+} satisfies ChartConfig;
+
+const MAX_CHART_ROWS = 10;
 
 export function StorageClient({ disks }: { disks: DiskOption[] }) {
   const [diskId, setDiskId] = useState(disks[0]?.id ?? '');
@@ -84,9 +81,23 @@ export function StorageClient({ disks }: { disks: DiskOption[] }) {
     };
   }, [diskId]);
 
-  const maxExtensionSize = data?.byExtension.length
-    ? Math.max(...data.byExtension.map((row) => Number(row.size)))
-    : 0;
+  const sortedExtensions = useMemo(
+    () => [...(data?.byExtension ?? [])].sort((a, b) => Number(b.size) - Number(a.size)),
+    [data]
+  );
+
+  const chartData = useMemo(
+    () =>
+      sortedExtensions.slice(0, MAX_CHART_ROWS).map((row) => ({
+        extension: `.${row.extension}`,
+        size: Number(row.size),
+        count: row.count,
+        share: Number(data?.totalSize) > 0 ? (Number(row.size) / Number(data?.totalSize)) * 100 : 0
+      })),
+    [sortedExtensions, data]
+  );
+
+  const hiddenExtensionCount = Math.max(0, sortedExtensions.length - chartData.length);
 
   return (
     <Card>
@@ -161,33 +172,48 @@ export function StorageClient({ disks }: { disks: DiskOption[] }) {
               {data.byExtension.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Aucun fichier indexé sur ce disque.</p>
               ) : (
-                <div className="space-y-2.5 rounded-xl border p-4">
-                  {data.byExtension.map((row, index) => {
-                    const percent =
-                      maxExtensionSize > 0 ? (Number(row.size) / maxExtensionSize) * 100 : 0;
-                    const shareOfTotal =
-                      Number(data.totalSize) > 0
-                        ? (Number(row.size) / Number(data.totalSize)) * 100
-                        : 0;
+                <div className="rounded-xl border p-4">
+                  <ChartContainer
+                    config={extensionChartConfig}
+                    className="aspect-auto"
+                    style={{ height: Math.max(chartData.length * 36, 120) }}
+                  >
+                    <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 48 }}>
+                      <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                      <XAxis type="number" hide />
+                      <YAxis
+                        type="category"
+                        dataKey="extension"
+                        width={72}
+                        tickLine={false}
+                        axisLine={false}
+                        className="font-mono"
+                      />
+                      <ChartTooltip
+                        cursor={{ fill: 'hsl(var(--muted))' }}
+                        content={<ChartTooltipContent formatter={(value) => formatBytes(value)} />}
+                      />
+                      <Bar dataKey="size" radius={[0, 6, 6, 0]}>
+                        {chartData.map((_entry, index) => (
+                          <Cell key={index} fill={`hsl(var(--chart-${(index % 5) + 1}))`} />
+                        ))}
+                        <LabelList
+                          dataKey="size"
+                          position="right"
+                          formatter={(value) => formatBytes(Number(value))}
+                          className="fill-foreground text-xs"
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ChartContainer>
 
-                    return (
-                      <div key={row.extension} className="space-y-1">
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span className="font-mono font-medium">.{row.extension}</span>
-                          <span className="text-muted-foreground">
-                            {formatBytes(BigInt(row.size))} · {row.count.toLocaleString('fr-FR')}{' '}
-                            fichier{row.count > 1 ? 's' : ''} · {shareOfTotal.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                          <div
-                            className={`h-full rounded-full ${EXTENSION_COLORS[index % EXTENSION_COLORS.length]}`}
-                            style={{ width: `${Math.max(percent, 1.5)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {hiddenExtensionCount > 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      +{hiddenExtensionCount} autre{hiddenExtensionCount > 1 ? 's' : ''} type
+                      {hiddenExtensionCount > 1 ? 's' : ''} de fichier non affiché
+                      {hiddenExtensionCount > 1 ? 's' : ''} (triés par taille).
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>

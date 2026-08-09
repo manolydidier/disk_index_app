@@ -35,6 +35,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import {
   Table,
   TableBody,
@@ -185,6 +186,19 @@ export function DashboardViewSwitcher({
 
   return (
     <div className="space-y-6">
+      {stats.diskCount === 0 ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold">Bienvenue sur Disk Indexer</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Ajoute un premier disque serveur, ou installe l&apos;agent sur un poste pour lui faire
+              remonter ses disques automatiquement.
+            </p>
+          </div>
+          <AddDiskModal />
+        </div>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-3">
         <StatCard
           icon={<HardDrive className="h-5 w-5" />}
@@ -682,14 +696,11 @@ function CapacityBar({
           {formatBytes(free)} libre sur {formatBytes(total)}
         </span>
       </div>
-      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className={`h-full rounded-full ${
-            isLow ? 'bg-destructive' : isWarning ? 'bg-amber-500' : 'bg-primary'
-          }`}
-          style={{ width: `${Math.max(usedPercent, 1.5)}%` }}
-        />
-      </div>
+      <Progress
+        value={Math.max(usedPercent, 1.5)}
+        className="mt-1.5 h-1.5"
+        indicatorClassName={isLow ? 'bg-destructive' : isWarning ? 'bg-warning' : 'bg-primary'}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { List, type RowComponentProps } from 'react-window';
 import {
   ChevronDown,
@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import type { TreeNode } from '@/types';
 
 type DiskTreeViewProps = {
@@ -32,37 +31,6 @@ const LIST_HEIGHT = 520;
 export function DiskTreeView({ tree }: DiskTreeViewProps) {
   const [query, setQuery] = useState('');
   const [expandedPaths, setExpandedPaths] = useState<string[]>([]);
-  const [progressVisible, setProgressVisible] = useState(false);
-  const [progressValue, setProgressValue] = useState(0);
-
-  const timersRef = useRef<number[]>([]);
-
-  function clearProgressTimers() {
-    timersRef.current.forEach((timer) => window.clearTimeout(timer));
-    timersRef.current = [];
-  }
-
-  function pulseProgress() {
-    clearProgressTimers();
-
-    setProgressVisible(true);
-    setProgressValue(18);
-
-    timersRef.current.push(
-      window.setTimeout(() => setProgressValue(62), 90)
-    );
-
-    timersRef.current.push(
-      window.setTimeout(() => setProgressValue(100), 220)
-    );
-
-    timersRef.current.push(
-      window.setTimeout(() => {
-        setProgressVisible(false);
-        setProgressValue(0);
-      }, 380)
-    );
-  }
 
   useEffect(() => {
     const rootFolders = tree
@@ -71,17 +39,6 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
 
     setExpandedPaths(rootFolders);
   }, [tree]);
-
-  useEffect(() => {
-    return () => {
-      clearProgressTimers();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (query.trim() === '') return;
-    pulseProgress();
-  }, [query]);
 
   const filteredTree = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
@@ -125,24 +82,21 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
 
       return Array.from(next);
     });
-
-    pulseProgress();
   }
 
   function expandAll() {
     setExpandedPaths(collectFolderPaths(tree));
-    pulseProgress();
   }
 
   function collapseAll() {
     setExpandedPaths([]);
-    pulseProgress();
   }
 
   if (tree.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-        Aucune donnée indexée pour ce disque.
+      <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center">
+        <FolderTree className="h-7 w-7 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Aucune donnée indexée pour ce disque.</p>
       </div>
     );
   }
@@ -190,10 +144,7 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
               {query ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setQuery('');
-                    pulseProgress();
-                  }}
+                  onClick={() => setQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
                   aria-label="Effacer la recherche"
                 >
@@ -202,8 +153,6 @@ export function DiskTreeView({ tree }: DiskTreeViewProps) {
               ) : null}
             </div>
           </div>
-
-          {progressVisible ? <Progress value={progressValue} className="h-1.5" /> : null}
 
           {query.trim() ? (
             <p className="text-xs text-muted-foreground">

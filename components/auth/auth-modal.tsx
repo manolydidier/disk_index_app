@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { LogIn, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AuthForm, type AuthMode } from "@/components/auth/auth-form";
@@ -30,7 +30,10 @@ export function AuthModal({
       }}
     >
       <Dialog.Trigger asChild>
-        <Button type="button">{triggerLabel}</Button>
+        <Button type="button" className="gap-2 px-2.5 sm:px-4" title={triggerLabel}>
+          <LogIn className="h-4 w-4" />
+          <span className="hidden sm:inline">{triggerLabel}</span>
+        </Button>
       </Dialog.Trigger>
 
       <Dialog.Portal>

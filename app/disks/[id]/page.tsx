@@ -6,7 +6,7 @@ import {
   Activity,
   ArrowLeft,
   BellDot,
-  ChevronDown,
+  ClipboardList,
   HardDrive,
   History,
   Info,
@@ -30,6 +30,12 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
 import { DiskTreeView } from '@/components/disks/disk-tree-view';
 import { DiskRowActions } from '@/components/disks/disk-row-actions';
 import { OpenDiskButton } from '@/components/disks/open-disk-button';
@@ -322,6 +328,7 @@ export default async function DiskDetailPage({
               icon={<ShieldCheck className="h-4 w-4" />}
               title="Accès"
               description="Utilisateurs autorisés à voir ce disque."
+              defaultOpen
             >
               <DiskAccessPanel diskId={disk.id} />
             </AccordionSection>
@@ -414,7 +421,10 @@ export default async function DiskDetailPage({
 
           <CardContent className="pt-6">
             {disk.scanJobs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Aucun scan enregistré pour l’instant.</p>
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center">
+                <History className="h-7 w-7 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Aucun scan enregistré pour l&apos;instant.</p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {disk.scanJobs.map((job) => {
@@ -477,7 +487,10 @@ export default async function DiskDetailPage({
 
           <CardContent className="pt-6">
             {disk.activities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Aucune activité enregistrée pour l’instant.</p>
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center">
+                <ClipboardList className="h-7 w-7 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Aucune activité enregistrée pour l&apos;instant.</p>
+              </div>
             ) : (
               <div className="max-h-[420px] space-y-2 overflow-y-auto">
                 {disk.activities.map((activity) => (
@@ -566,23 +579,26 @@ function AccordionSection({
   defaultOpen?: boolean;
 }) {
   return (
-    <details
-      open={defaultOpen}
+    <Accordion
+      type="single"
+      collapsible
+      defaultValue={defaultOpen ? 'section' : undefined}
       className="overflow-hidden rounded-2xl border bg-background shadow-sm"
     >
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-3 border-b bg-muted/20 px-4 py-4">
-        <div className="flex items-start gap-2">
-          <div className="mt-0.5 text-muted-foreground">{icon}</div>
-          <div>
-            <p className="text-sm font-semibold">{title}</p>
-            <p className="text-xs text-muted-foreground">{description}</p>
+      <AccordionItem value="section" className="border-b-0">
+        <AccordionTrigger className="items-start gap-3 border-b bg-muted/20 px-4 py-4 text-left hover:no-underline [&>svg]:mt-0.5">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5 text-muted-foreground">{icon}</div>
+            <div>
+              <p className="text-sm font-semibold">{title}</p>
+              <p className="text-xs text-muted-foreground">{description}</p>
+            </div>
           </div>
-        </div>
-        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-      </summary>
+        </AccordionTrigger>
 
-      <div className="space-y-3 px-4 py-4">{children}</div>
-    </details>
+        <AccordionContent className="space-y-3 px-4 pb-4 pt-3">{children}</AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 

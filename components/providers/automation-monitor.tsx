@@ -135,7 +135,7 @@ export function AutomationMonitor() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[70] flex w-[380px] flex-col gap-3">
+    <>
       {hiddenCount > 0 ? (
         <div className="self-end rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
           +{hiddenCount} autre{hiddenCount > 1 ? 's' : ''} notification
@@ -147,7 +147,10 @@ export function AutomationMonitor() {
         const actions = getActions(event);
 
         return (
-          <Card key={event.id} className="border shadow-xl">
+          <Card
+            key={event.id}
+            className="w-full animate-in border shadow-xl slide-in-from-bottom-4 fade-in-0"
+          >
             <CardHeader className="pb-3">
               <CardTitle className="flex items-start justify-between gap-3 text-base">
                 <span className="flex items-center gap-2">
@@ -234,6 +237,6 @@ export function AutomationMonitor() {
           </Card>
         );
       })}
-    </div>
+    </>
   );
 }

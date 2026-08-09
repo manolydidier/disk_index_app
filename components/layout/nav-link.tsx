@@ -38,32 +38,3 @@ export function NavLink({
   );
 }
 
-export function MobileIconLink({
-  href,
-  label,
-  children
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  const pathname = usePathname();
-  const active = isActivePath(pathname, href);
-
-  return (
-    <Link
-      href={href}
-      aria-label={label}
-      aria-current={active ? 'page' : undefined}
-      title={label}
-      className={cn(
-        'inline-flex h-9 w-9 items-center justify-center rounded-full border transition',
-        active
-          ? 'border-border bg-muted text-foreground'
-          : 'bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
-      )}
-    >
-      {children}
-    </Link>
-  );
-}

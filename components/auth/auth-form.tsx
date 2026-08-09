@@ -9,7 +9,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export type AuthMode = "login" | "register";
 
@@ -154,29 +154,16 @@ export function AuthForm({
 
   return (
     <div>
-      <div className="grid grid-cols-2 rounded-xl bg-muted p-1">
-        <button
-          type="button"
-          onClick={() => switchMode("login")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm text-muted-foreground",
-            mode === "login" && "bg-background font-medium text-foreground shadow-sm"
-          )}
-        >
-          Connexion
-        </button>
-
-        <button
-          type="button"
-          onClick={() => switchMode("register")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm text-muted-foreground",
-            mode === "register" && "bg-background font-medium text-foreground shadow-sm"
-          )}
-        >
-          Inscription
-        </button>
-      </div>
+      <Tabs value={mode} onValueChange={(value) => switchMode(value as AuthMode)}>
+        <TabsList className="grid w-full grid-cols-2 rounded-xl">
+          <TabsTrigger value="login" className="rounded-lg">
+            Connexion
+          </TabsTrigger>
+          <TabsTrigger value="register" className="rounded-lg">
+            Inscription
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         {mode === "register" ? (

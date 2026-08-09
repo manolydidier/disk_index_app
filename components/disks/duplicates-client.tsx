@@ -1,13 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronDown, Copy, Files, Loader2, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Copy, Files, Loader2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
 import {
   Dialog,
   DialogContent,
@@ -70,6 +76,14 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<DuplicateFile | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const remainingGroupFiles = useMemo(() => {
+    if (!deleteTarget || !data) return [];
+    const group = data.groups.find((item) =>
+      item.files.some((file) => file.id === deleteTarget.id)
+    );
+    return group ? group.files.filter((file) => file.id !== deleteTarget.id) : [];
+  }, [deleteTarget, data]);
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -218,78 +232,80 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
               />
             </div>
 
-            <div className="space-y-2">
+            <Accordion type="multiple" className="space-y-2">
               {data.groups.map((group) => (
-                <details
+                <AccordionItem
                   key={`${group.name}:${group.size}`}
-                  className="group overflow-hidden rounded-xl border"
+                  value={`${group.name}:${group.size}`}
+                  className="overflow-hidden rounded-xl border border-b-0"
                 >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-muted/10 px-4 py-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                  <AccordionTrigger className="bg-muted/10 px-4 py-3 hover:no-underline">
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                       <span className="truncate text-sm font-medium">{group.name}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      <span>{formatBytes(BigInt(group.size))} × {group.count}</span>
-                      <Badge variant="outline">
-                        récup. {formatBytes(BigInt(group.wasted))}
-                      </Badge>
-                    </div>
-                  </summary>
-
-                  <div className="divide-y border-t">
-                    {group.files.map((file) => (
-                      <div
-                        key={file.id}
-                        className="flex items-center justify-between gap-3 px-4 py-2.5"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium">
-                            {file.disk.code} — {file.disk.name}
-                          </p>
-                          <p
-                            className="truncate font-mono text-xs text-muted-foreground"
-                            title={file.relativePath}
-                          >
-                            {truncateMiddle(file.relativePath, 55, 20)}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Modifié {formatDate(file.modifiedAt)}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void copyText(file.fullPath)}
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                            Copier
-                          </Button>
-
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            disabled={deletingId === file.id}
-                            onClick={() => setDeleteTarget(file)}
-                          >
-                            {deletingId === file.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                            Supprimer
-                          </Button>
-                        </div>
+                      <div className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+                        <span>{formatBytes(BigInt(group.size))} × {group.count}</span>
+                        <Badge variant="outline">
+                          récup. {formatBytes(BigInt(group.wasted))}
+                        </Badge>
                       </div>
-                    ))}
-                  </div>
-                </details>
+                    </div>
+                  </AccordionTrigger>
+
+                  <AccordionContent className="pb-0">
+                    <div className="divide-y border-t">
+                      {group.files.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between gap-3 px-4 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium">
+                              {file.disk.code} — {file.disk.name}
+                            </p>
+                            <p
+                              className="truncate font-mono text-xs text-muted-foreground"
+                              title={file.relativePath}
+                            >
+                              {truncateMiddle(file.relativePath, 55, 20)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Modifié {formatDate(file.modifiedAt)}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void copyText(file.fullPath)}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                              Copier
+                            </Button>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              disabled={deletingId === file.id}
+                              onClick={() => setDeleteTarget(file)}
+                            >
+                              {deletingId === file.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              Supprimer
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
-            </div>
+            </Accordion>
           </>
         )}
       </CardContent>
@@ -312,6 +328,34 @@ export function DuplicatesClient({ disks }: { disks: DiskOption[] }) {
             >
               {deleteTarget.fullPath}
             </p>
+          ) : null}
+
+          {deleteTarget ? (
+            remainingGroupFiles.length > 0 ? (
+              <div className="space-y-1.5 rounded-lg border px-3 py-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {remainingGroupFiles.length} autre{remainingGroupFiles.length > 1 ? 's' : ''}{' '}
+                  exemplaire{remainingGroupFiles.length > 1 ? 's' : ''} resteron
+                  {remainingGroupFiles.length > 1 ? 't' : 'a'} dans l&apos;index :
+                </p>
+                <ul className="space-y-1">
+                  {remainingGroupFiles.map((file) => (
+                    <li
+                      key={file.id}
+                      className="truncate font-mono text-[11px] text-muted-foreground"
+                      title={file.relativePath}
+                    >
+                      {file.disk.code} — {truncateMiddle(file.relativePath, 45, 15)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+                C&apos;est le dernier exemplaire de ce groupe : il disparaîtra de la liste des
+                doublons après suppression.
+              </p>
+            )
           ) : null}
 
           <DialogFooter>

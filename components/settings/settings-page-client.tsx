@@ -8,7 +8,6 @@ import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
 import {
   AlertTriangle,
-  ChevronDown,
   Laptop,
   Loader2,
   Pencil,
@@ -27,6 +26,12 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   Dialog,
   DialogContent,
@@ -162,8 +167,24 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function SettingsPageClient() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
+
   const [activeTab, setActiveTab] = useState<SettingsTab>("automation");
-  const activeItem = NAV_ITEMS.find((item) => item.id === activeTab) ?? NAV_ITEMS[0];
+
+  const visibleNavItems = useMemo(
+    () => (isAdmin ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== "users")),
+    [isAdmin]
+  );
+
+  const activeItem =
+    visibleNavItems.find((item) => item.id === activeTab) ?? visibleNavItems[0];
+
+  useEffect(() => {
+    if (activeTab === "users" && !isAdmin) {
+      setActiveTab("automation");
+    }
+  }, [activeTab, isAdmin]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -183,7 +204,7 @@ export function SettingsPageClient() {
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-xl border bg-muted/30 p-1.5 lg:hidden">
-        {NAV_ITEMS.map((item) => (
+        {visibleNavItems.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -204,7 +225,7 @@ export function SettingsPageClient() {
       <div className="grid overflow-hidden rounded-2xl border bg-background shadow-sm lg:grid-cols-[260px_1fr]">
         <nav className="hidden border-r bg-muted/20 p-3 lg:block">
           <ul className="space-y-1">
-            {NAV_ITEMS.map((item) => (
+            {visibleNavItems.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
@@ -258,6 +279,7 @@ export function SettingsPageClient() {
 
 function AutomationSettingsPanel() {
   const [data, setData] = useState<AutomationSettingsPayload | null>(null);
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState("");
@@ -303,15 +325,32 @@ function AutomationSettingsPanel() {
   }
 
   async function load() {
+    setError("");
+
     try {
       const response = await fetch("/api/automation/settings", {
         cache: "no-store",
       });
 
-      const payload = (await response.json()) as AutomationSettingsPayload;
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as AutomationSettingsPayload & { error?: string };
+
+      if (!response.ok) {
+        throw new Error(
+          payload.error || "Impossible de charger les paramètres d’automatisation."
+        );
+      }
+
       setData(payload);
-    } catch {
-      toast.error("Impossible de charger les paramètres d’automatisation");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Impossible de charger les paramètres d’automatisation.";
+
+      setError(message);
+      toast.error("Erreur", { description: message });
     }
   }
 
@@ -328,6 +367,21 @@ function AutomationSettingsPanel() {
     () => (data?.settings.ignoredPathPatterns ?? []).join("\n"),
     [data]
   );
+
+  if (!data && error) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+
+        <Button variant="outline" onClick={() => void load()}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          Réessayer
+        </Button>
+      </div>
+    );
+  }
 
   if (!data) {
     return (
@@ -727,7 +781,7 @@ function AutomationSettingsPanel() {
             Aucun disque trouvé.
           </div>
         ) : (
-          <div className="space-y-2">
+          <Accordion type="multiple" className="space-y-2">
             {data.disks.map((disk) => {
               const pref = disk.preference ?? {
                 monitorEnabled: true,
@@ -741,26 +795,29 @@ function AutomationSettingsPanel() {
               };
 
               return (
-                <details key={disk.id} className="group rounded-xl border">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {disk.code} — {disk.name}
-                      </p>
-                      <p className="truncate font-mono text-xs text-muted-foreground">
-                        {disk.rootPath}
-                      </p>
-                    </div>
+                <AccordionItem
+                  key={disk.id}
+                  value={disk.id}
+                  className="rounded-xl border border-b-0"
+                >
+                  <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <div className="min-w-0 text-left">
+                        <p className="truncate text-sm font-medium">
+                          {disk.code} — {disk.name}
+                        </p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">
+                          {disk.rootPath}
+                        </p>
+                      </div>
 
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span className="rounded-full border bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                      <span className="shrink-0 rounded-full border bg-muted px-2.5 py-1 text-xs font-normal text-muted-foreground">
                         {disk.status}
                       </span>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
                     </div>
-                  </summary>
+                  </AccordionTrigger>
 
-                  <div className="border-t px-4 py-3">
+                  <AccordionContent className="border-t px-4 pb-3 pt-3">
                     <div className="divide-y">
                       <SettingToggle
                         label="Surveiller ce disque"
@@ -875,11 +932,11 @@ function AutomationSettingsPanel() {
                         />
                       </SettingField>
                     </div>
-                  </div>
-                </details>
+                  </AccordionContent>
+                </AccordionItem>
               );
             })}
-          </div>
+          </Accordion>
         )}
       </SettingsSection>
 

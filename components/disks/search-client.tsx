@@ -25,6 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -483,9 +484,11 @@ export function SearchClient({ disks }: { disks: DiskOption[] }) {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                {results.length} résultat{results.length > 1 ? 's' : ''}
-                {loading ? ' · actualisation...' : ''}
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>
+                  {results.length} résultat{results.length > 1 ? 's' : ''}
+                </span>
+                {loading ? <Skeleton className="h-4 w-24" /> : null}
               </p>
 
               <div className="overflow-hidden rounded-xl border">

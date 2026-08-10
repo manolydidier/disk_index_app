@@ -5,6 +5,7 @@
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -202,9 +203,20 @@ export function AuthForm({
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium">
-            Mot de passe
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor="password" className="text-sm font-medium">
+              Mot de passe
+            </label>
+
+            {mode === "login" ? (
+              <Link
+                href="/forgot-password"
+                className="text-xs font-medium text-muted-foreground underline hover:text-foreground"
+              >
+                Mot de passe oublié ?
+              </Link>
+            ) : null}
+          </div>
 
           <Input
             id="password"

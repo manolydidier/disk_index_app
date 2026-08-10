@@ -111,6 +111,7 @@ export function CommandPalette() {
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-label="Accès rapide (Ctrl+K)"
         className="inline-flex h-9 items-center gap-2 rounded-full border bg-background px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Search className="h-4 w-4" />

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1388,27 +1389,31 @@ function UsersPanel() {
                   key={user.id}
                   className="grid gap-4 px-4 py-4 md:grid-cols-[1fr_160px_140px_180px] md:items-center"
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">
-                        {user.name || "Utilisateur sans nom"}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <UserAvatar name={user.name} email={user.email} className="mt-0.5 h-8 w-8 shrink-0" />
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate font-medium">
+                          {user.name || "Utilisateur sans nom"}
+                        </p>
+
+                        {user.role === "ADMIN" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            <ShieldCheck className="h-3 w-3" />
+                            Admin
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <p className="truncate text-sm text-muted-foreground">
+                        {user.email}
                       </p>
 
-                      {user.role === "ADMIN" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                          <ShieldCheck className="h-3 w-3" />
-                          Admin
-                        </span>
-                      ) : null}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Créé le {formatDate(user.createdAt)}
+                      </p>
                     </div>
-
-                    <p className="truncate text-sm text-muted-foreground">
-                      {user.email}
-                    </p>
-
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Créé le {formatDate(user.createdAt)}
-                    </p>
                   </div>
 
                   <div>

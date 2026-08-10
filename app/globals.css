@@ -18,7 +18,7 @@
     --muted-foreground: 215 16% 40%;
     --accent: 217 91% 95%;
     --accent-foreground: 226 71% 30%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 84.2% 46%;
     --destructive-foreground: 210 40% 98%;
     --warning: 38 92% 50%;
     --warning-foreground: 26 83% 14%;
@@ -68,5 +68,16 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }

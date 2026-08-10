@@ -173,9 +173,34 @@ export function StorageClient({ disks }: { disks: DiskOption[] }) {
                 <p className="text-sm text-muted-foreground">Aucun fichier indexé sur ce disque.</p>
               ) : (
                 <div className="rounded-xl border p-4">
+                  {/* Recharts renders to SVG with no built-in screen-reader semantics —
+                      this table carries the same data for assistive tech. */}
+                  <table className="sr-only">
+                    <caption>Répartition du stockage par type de fichier</caption>
+                    <thead>
+                      <tr>
+                        <th>Extension</th>
+                        <th>Taille</th>
+                        <th>Fichiers</th>
+                        <th>Part du total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chartData.map((row) => (
+                        <tr key={row.extension}>
+                          <td>{row.extension}</td>
+                          <td>{formatBytes(row.size)}</td>
+                          <td>{row.count}</td>
+                          <td>{row.share.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
                   <ChartContainer
                     config={extensionChartConfig}
                     className="aspect-auto"
+                    aria-hidden="true"
                     style={{ height: Math.max(chartData.length * 36, 120) }}
                   >
                     <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 48 }}>

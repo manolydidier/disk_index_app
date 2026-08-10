@@ -3,6 +3,14 @@ const { PHASE_DEVELOPMENT_SERVER } = require('next/constants');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
+  // lib/email.ts loads nodemailer via a webpack-ignored dynamic import (see
+  // that file for why) — invisible to the standalone build's file tracer,
+  // so without this it can silently go missing from the Docker image and
+  // only fail once an email is actually sent in production.
+  outputFileTracingIncludes: {
+    '/api/**/*': ['./node_modules/nodemailer/**/*'],
+  },
   async headers() {
     return [];
   },

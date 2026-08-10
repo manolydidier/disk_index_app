@@ -1,0 +1,5 @@
+# Shell scripts run inside Linux containers — a CRLF checkout on Windows
+# breaks them with "bad interpreter" errors, so force LF regardless of the
+# platform-level core.autocrlf setting.
+docker/entrypoint.sh text eol=lf
+Dockerfile text eol=lf
